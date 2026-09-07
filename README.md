@@ -1,9 +1,10 @@
 # OmaPen
 
 Rewrite whatever text you have selected, without leaving the window you are in.
-The Chrome and macOS feature, on Omarchy, using the coding agent Omarchy already
-knows about instead of an API key. Text that is not selected anywhere works
-too: open the panel empty and type into it.
+"Help me write" in Chrome, Writing Tools on macOS, the rewrite menu in Teams and
+Word: the same idea on Omarchy, using the coding agent Omarchy already knows
+about instead of an API key. Text that is not selected anywhere works too: open
+the panel empty and type into it.
 
 Select some text, press `SUPER + SHIFT + H`, pick an action or type your own.
 The result comes back in a panel you can paste, or straight over the selection.

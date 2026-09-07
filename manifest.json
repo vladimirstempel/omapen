@@ -4,7 +4,7 @@
   "name": "OmaPen",
   "version": "0.2.0",
   "author": "stempelv",
-  "description": "Rewrite text with the coding agent Omarchy already knows about: whatever you have selected, or whatever you type into it",
+  "description": "\"Help me write\" for Omarchy: rewrite whatever you have selected, or whatever you type into the panel, with the coding agent Omarchy already knows about",
   "license": "MIT",
   "kinds": [
     "bar-widget"
