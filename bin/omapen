@@ -72,6 +72,26 @@ is_terminal() {
   esac
 }
 
+# Hyprland fires SUPER+SHIFT+H while both modifiers are still physically down,
+# and a synthetic Ctrl+C delivered under them is read as Super+Shift+Ctrl+C,
+# which nothing treats as copy: measured against Chromium, holding either one
+# copies zero bytes. A single press failed silently there, the fallback read
+# that as "nothing is selected", and a selected sentence came back as the whole
+# page. So press until the clipboard fills or the budget runs out: the first
+# press after the user's fingers leave the keybinding is the one that lands.
+press_until_copied() {
+  local budget_ms="${1:-900}" deadline now text
+  now() { printf '%s' $(( $(date +%s%N) / 1000000 )); }
+  deadline=$(( $(now) + budget_ms ))
+  while :; do
+    press c
+    sleep 0.1
+    text=$(wl-paste --no-newline 2>/dev/null)
+    [[ -n $text ]] && { printf '%s' "$text"; return 0; }
+    (( $(now) >= deadline )) && return 1
+  done
+}
+
 # What counts as "the text I am looking at", in order:
 #
 #   1. What the focused window copies on Ctrl+C right now. This is the only way
@@ -94,29 +114,33 @@ capture() {
   address=$(jq -r '.address // ""' <<<"$active")
   class=$(jq -r '.class // ""' <<<"$active")
   saved=$(wl-paste --no-newline 2>/dev/null)
+  # The clipboard gets cleared below to make "nothing was copied" legible, so
+  # put the restore on the way out rather than at the end of the branch: a
+  # capture that dies in the middle must not take the user's clipboard with it.
+  trap '[[ -n $saved ]] && printf "%s" "$saved" | wl-copy 2>/dev/null' RETURN
   text=""
   source=""
 
   if [[ -n $address ]] && ! is_terminal "$class" && [[ $(setting captureFallback true) == "true" ]]; then
-    press c
-    sleep 0.2
-    text=$(wl-paste --no-newline 2>/dev/null)
-    # A window with nothing selected leaves the clipboard exactly as it was.
-    [[ $text == "$saved" ]] && text=""
+    # Clearing first turns "did anything get copied" into a question the
+    # clipboard can answer by itself. Comparing against the previous contents
+    # instead called a real copy "nothing selected" whenever you happened to
+    # have that same sentence on the clipboard already.
+    wl-copy --clear 2>/dev/null
+    text=$(press_until_copied)
     [[ -n $text ]] && source="selection"
 
     if [[ -z $text ]]; then
       # Ctrl+A also leaves the field selected, which is what makes the result
-      # land on top of it rather than beside it.
+      # land on top of it rather than beside it. Only reachable once the copy
+      # loop above has given up, so a live selection never gets here.
       press a
       press c
       sleep 0.25
       text=$(wl-paste --no-newline 2>/dev/null)
-      [[ $text == "$saved" ]] && text=""
       [[ -n $text ]] && source="field"
     fi
 
-    [[ -n $saved ]] && printf '%s' "$saved" | wl-copy
   fi
 
   if [[ -z $text ]]; then
@@ -309,6 +333,24 @@ selftest() {
   is_terminal kitty && is_terminal org.omarchy.agent && is_terminal com.mitchellh.ghostty ||
     die "selftest: terminal detection missed one"
   ! is_terminal chromium && ! is_terminal code || die "selftest: terminal detection too eager"
+
+  # The copy loop is the whole fix for a synthetic Ctrl+C landing under the
+  # keybinding's own modifiers, so assert both halves: it keeps pressing until
+  # one lands, and it gives up instead of spinning forever.
+  (
+    presses=0
+    press() { presses=$((presses + 1)); }
+    wl-paste() { ((presses >= 3)) && printf 'landed'; }
+    # 'landed' only exists from the third press on, so getting it back is the
+    # proof that one silent failure did not end the attempt.
+    [[ $(press_until_copied 2000) == landed ]] || exit 1
+  ) || die "selftest: copy loop gave up before a late press landed"
+  (
+    press() { :; }
+    wl-paste() { :; }
+    press_until_copied 200 && exit 1
+    exit 0
+  ) || die "selftest: copy loop did not give up on its deadline"
 
   out=$(focus_lua 0xdead)
   [[ $out == "hl.dsp.focus({ window = 'address:0xdead' })" ]] || die "selftest: focus lua wrong: $out"
