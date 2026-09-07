@@ -131,12 +131,14 @@ Panel {
     }
   }
 
-  // Capture runs before the popup exists, never after: the popup takes the
-  // keyboard, and the Ctrl+A fallback types into whatever holds it. The
-  // keybinding captures on its own and only toggles us afterwards.
+  // The bar icon opens straight into an empty field. Reaching for the mouse
+  // means your hands already left the text, and clicking a bar icon is not how
+  // anyone asks for the sentence they are looking at to be rewritten: that is
+  // what SUPER + SHIFT + H is for. `settext ""` is compose without the toggle,
+  // which the panel does for itself here.
   Process {
-    id: captureProc
-    command: [root.cli, "capture"]
+    id: composeProc
+    command: [root.cli, "settext", ""]
     onExited: {
       sessionFile.reload()
       root.open()
@@ -191,7 +193,7 @@ Panel {
     tooltipText: "OmaPen"
     onPressed: function (b) {
       if (root.opened) root.close()
-      else captureProc.running = true
+      else composeProc.running = true
     }
   }
 
