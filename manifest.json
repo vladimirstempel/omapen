@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "omapen",
   "name": "OmaPen",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "stempelv",
-  "description": "Rewrite whatever text you have selected, using the coding agent Omarchy already knows about",
+  "description": "Rewrite text with the coding agent Omarchy already knows about: whatever you have selected, or whatever you type into it",
   "license": "MIT",
   "kinds": [
     "bar-widget"
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "OmaPen",
-    "description": "Rewrite the selected text with the system AI agent",
+    "description": "Rewrite selected or typed text with the system AI agent",
     "category": "Productivity",
     "allowMultiple": false,
     "defaultSection": "right",

@@ -2,11 +2,16 @@
 
 Rewrite whatever text you have selected, without leaving the window you are in.
 The Chrome and macOS feature, on Omarchy, using the coding agent Omarchy already
-knows about instead of an API key.
+knows about instead of an API key. Text that is not selected anywhere works
+too: open the panel empty and type into it.
 
 Select some text, press `SUPER + SHIFT + H`, pick an action or type your own.
 The result comes back in a panel you can paste, or straight over the selection.
 Keyboard the whole way: open, type, Return to run, Ctrl+Return to paste it back.
+
+Nothing selected? `SUPER + CTRL + SHIFT + H` opens the same panel with an empty
+field to type or paste into, for text that is not on the screen yet. That one
+captures nothing, so it works while a terminal is focused too.
 
 ![The OmaPen panel: the captured sentence, the eight presets, a free prompt
 field, and the rewrite with Replace, Copy and Again](docs/preview.webp)
