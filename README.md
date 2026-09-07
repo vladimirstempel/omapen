@@ -52,6 +52,10 @@ And, if you want it in the Omarchy menu, one row in
 "omapen": {"icon":"󰁨","label":"OmaPen","description":"Rewrite the selected text with the system agent","action":"$HOME/.config/omarchy/plugins/omapen/bin/omapen open"},
 ```
 
+Clicking the bar icon opens the empty field rather than capturing: reaching for
+the mouse means your hands have already left the text. `SUPER + SHIFT + H` is
+the one that acts on a selection.
+
 The bar icon is placed on the right by default. Move it with
 `omarchy bar move omapen`.
 
@@ -102,8 +106,8 @@ have no menu at all.
 
 ## Bring your own text
 
-`SUPER + CTRL + SHIFT + H` opens the panel with nothing captured and the cursor
-in an empty field. Paste something from your phone, or type the sentence you
+`SUPER + CTRL + SHIFT + H`, or a click on the bar icon, opens the panel with
+nothing captured and the cursor in an empty field. Paste something from your phone, or type the sentence you
 are about to write, and the same actions apply to it. The badge reads
 `YOUR TEXT` so it is never in doubt which one you are in.
 
