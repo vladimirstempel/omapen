@@ -17,8 +17,14 @@ Keyboard the whole way: open, type, Return to run, Ctrl+Return to paste it back.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/<you>/omapen.git --enable --yes
+omarchy plugin add https://github.com/vladimirstempel/omapen.git --enable --yes
 ```
+
+That clones into `~/.config/omarchy/plugins/omapen` and puts the icon in the bar.
+If you already have the repo checked out somewhere and symlinked into that
+folder, `add` refuses the clone rather than overwriting it: the checkout is
+already the installed plugin, so skip this step and just enable it with
+`omarchy plugin enable omapen`.
 
 Then add the keybinding to `~/.config/hypr/bindings.lua`:
 
