@@ -20,7 +20,10 @@ field, and the rewrite with Replace, Copy and Again](preview.webp)
 ## Requirements
 
 - Omarchy 4 (the Quickshell `omarchy-shell`, plugin schema 1)
-- A default agent: `omarchy default agent claude` (or codex, gemini, opencode, crush, copilot)
+- A default agent: `omarchy default agent claude` (or codex, gemini, opencode,
+  crush, copilot, pi, omp, grok, agy), signed in and working on its own. If the agent
+  cannot answer from a terminal, it cannot answer here either, and the panel
+  will show you what it said.
 - `jq`, `wl-clipboard`, `wtype`, all of which Omarchy already installs
 
 ## Install
@@ -118,6 +121,23 @@ that works while a terminal is focused, where capture refuses to press keys.
 There is no window behind it to paste back into, so `Replace` is not offered
 here and `Copy` is the way out.
 
+## Keyboard
+
+Nothing here needs a pointer.
+
+| Key | What it does |
+|---|---|
+| `Tab` / `Shift+Tab` | Move through the field, the actions, and the buttons under a result |
+| `←` `→` `↑` `↓`, or `h` `j` `k` `l` | The same ring, once focus has left the text field |
+| `Return` | Run the focused action, or the instruction you typed |
+| `Alt+1` … `Alt+9` | Run that action from anywhere, mid-sentence included. Each action is labelled with its own digit, so there is nothing to memorise |
+| `Ctrl+Return` | Paste the result back over the selection |
+| `Esc` | Close |
+
+Focus is drawn as a ring in the theme's accent colour. The field keeps every
+key while it has focus, so `j` and `k` are typed rather than moving the cursor:
+`Tab` is what leaves it.
+
 ## Settings
 
 Settings live inline on the widget's entry in `~/.config/omarchy/shell.json`.
@@ -133,7 +153,7 @@ omarchy bar set omapen model ""         # back to the small fast default
 | Setting | Default | What it does |
 |---|---|---|
 | Agent | System default | Follows `omarchy default agent`, or names one to use instead. |
-| Model | empty | Passed to the agent as its model flag. Empty picks a small fast model per agent: `haiku` for claude, `gpt-5.6-luna` at minimal reasoning for codex, `gemini-3.7-flash` for gemini. Agents whose model ids depend on your own provider config (opencode, copilot, crush) keep their own default. |
+| Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. Passed to the agent as its model flag. Empty picks a small fast model per agent: `haiku` for claude, `gpt-5.6-luna` at minimal reasoning for codex, `gemini-3.7-flash` for gemini. Agents whose model ids depend on your own provider config (opencode, copilot, crush) keep their own default. |
 | What to do with the result | Show in panel | Or replace the selection: focuses the window the text came from and pastes over it. |
 | Grab the whole field | on | The Ctrl+A Ctrl+C fallback described above. |
 | Panel width | 480 | In the shell's spacing units. |
@@ -143,7 +163,9 @@ omarchy bar set omapen model ""         # back to the small fast default
 The shipped actions live in `prompts.json`. Copy it to
 `~/.config/omapen/prompts.json` and that file wins. Each entry needs an
 `id`, a `label`, an optional Nerd Font `icon`, and the `instruction` the agent
-is given.
+is given. The first nine show their `Alt` digit in place of the icon, since a
+shortcut you can read beats a glyph next to a label that already says the same
+thing. Anything past the ninth has no shortcut to advertise and keeps its icon.
 
 ## How it works
 

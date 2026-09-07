@@ -37,7 +37,11 @@
           "gemini",
           "opencode",
           "crush",
-          "copilot"
+          "copilot",
+          "pi",
+          "omp",
+          "grok",
+          "agy"
         ],
         "defaultValue": "System default",
         "description": "System default follows the agent picked in Setup > Default agent, which is the one already installed and signed in. Naming an agent here uses that one instead, and fails plainly when it is not installed."
