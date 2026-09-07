@@ -33,7 +33,11 @@ Then add the keybinding to `~/.config/hypr/bindings.lua`:
 
 ```lua
 o.bind("SUPER + SHIFT + H", "OmaPen", "$HOME/.config/omarchy/plugins/omapen/bin/omapen open")
+o.bind("SUPER + CTRL + SHIFT + H", "OmaPen compose", "$HOME/.config/omarchy/plugins/omapen/bin/omapen compose")
 ```
+
+The second one opens the panel with an empty page to type or paste into, for
+text that is not selected anywhere. See [Bring your own text](#bring-your-own-text).
 
 And, if you want it in the Omarchy menu, one row in
 `~/.config/omarchy/extensions/omarchy-menu.jsonc`:
@@ -90,6 +94,20 @@ Wayland has no way to add an item to another application's context menu, so the
 keybinding is the equivalent: it works in every window, including the ones that
 have no menu at all.
 
+## Bring your own text
+
+`SUPER + CTRL + SHIFT + H` opens the panel with nothing captured and the cursor
+in an empty field. Paste something from your phone, or type the sentence you
+are about to write, and the same actions apply to it. The badge reads
+`YOUR TEXT` so it is never in doubt which one you are in.
+
+Type the text, press Return to move to the instruction, Return again to run.
+No keystrokes are sent to any window for this, which is also why it is the one
+that works while a terminal is focused, where capture refuses to press keys.
+
+There is no window behind it to paste back into, so `Replace` is not offered
+here and `Copy` is the way out.
+
 ## Settings
 
 Settings live inline on the widget's entry in `~/.config/omarchy/shell.json`.
@@ -124,6 +142,7 @@ agent is in `bin/omapen`, which runs on its own from a terminal:
 
 ```bash
 bin/omapen capture              # selection -> $XDG_RUNTIME_DIR/omapen/session.json
+bin/omapen compose              # empty session, nothing captured
 bin/omapen run shorten          # ask the agent, print the result
 bin/omapen run - "make it rhyme"
 bin/omapen insert               # paste the last result back where it came from
@@ -149,7 +168,7 @@ symlinked plugin directory, so an out-of-tree checkout needs
 `~/.config/omarchy/plugins/omapen` for real reloads on save.
 
 `bin/omapen selftest` covers the prompt building, the agent command table, the
-settings reader and the run path. The compositor parts (focus, paste, the
+settings reader, the compose session and the run path. The compositor parts (focus, paste, the
 Ctrl+A fallback) need a session and are checked by hand.
 
 ## License
