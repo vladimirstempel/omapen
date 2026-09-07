@@ -130,7 +130,7 @@ Nothing here needs a pointer.
 | `Tab` / `Shift+Tab` | Move through the field, the actions, and the buttons under a result |
 | `←` `→` `↑` `↓`, or `h` `j` `k` `l` | The same ring, once focus has left the text field |
 | `Return` | Run the focused action, or the instruction you typed |
-| `Alt+1` … `Alt+8` | Run that action from anywhere, mid-sentence included |
+| `Alt+1` … `Alt+9` | Run that action from anywhere, mid-sentence included. Each action is labelled with its own digit, so there is nothing to memorise |
 | `Ctrl+Return` | Paste the result back over the selection |
 | `Esc` | Close |
 
@@ -163,7 +163,9 @@ omarchy bar set omapen model ""         # back to the small fast default
 The shipped actions live in `prompts.json`. Copy it to
 `~/.config/omapen/prompts.json` and that file wins. Each entry needs an
 `id`, a `label`, an optional Nerd Font `icon`, and the `instruction` the agent
-is given.
+is given. The first nine show their `Alt` digit in place of the icon, since a
+shortcut you can read beats a glyph next to a label that already says the same
+thing. Anything past the ninth has no shortcut to advertise and keeps its icon.
 
 ## How it works
 

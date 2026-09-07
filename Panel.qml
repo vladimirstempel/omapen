@@ -388,8 +388,13 @@ Panel {
 
             Button {
               required property var modelData
+              required property int index
               text: modelData.label
-              iconText: modelData.icon || ""
+              // The digit is what Alt runs, so it is worth more than a glyph
+              // sitting next to a label that already says the same thing.
+              // Past the ninth there is no shortcut to advertise, so those
+              // keep their icon.
+              iconText: index < 9 ? String(index + 1) : (modelData.icon || "")
               foreground: root.bar.foreground
               fontFamily: root.bar.fontFamily
               bordered: true
