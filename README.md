@@ -9,7 +9,7 @@ The result comes back in a panel you can paste, or straight over the selection.
 Keyboard the whole way: open, type, Return to run, Ctrl+Return to paste it back.
 
 ![The OmaPen panel: the captured sentence, the eight presets, a free prompt
-field, and the rewrite with Replace, Copy and Again](docs/preview.png)
+field, and the rewrite with Replace, Copy and Again](docs/preview.webp)
 
 ## Requirements
 
