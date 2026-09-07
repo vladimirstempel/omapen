@@ -42,6 +42,30 @@ And, if you want it in the Omarchy menu, one row in
 The bar icon is placed on the right by default. Move it with
 `omarchy bar move omapen`.
 
+## Uninstall
+
+```bash
+omarchy plugin remove omapen
+```
+
+That unloads the widget from the running shell, takes it out of the bar and
+deletes `~/.config/omarchy/plugins/omapen`. Three things it does not touch,
+because it did not create them:
+
+```bash
+# the keybinding line you added
+$EDITOR ~/.config/hypr/bindings.lua
+
+# the menu row, if you added one
+$EDITOR ~/.config/omarchy/extensions/omarchy-menu.jsonc
+
+# your own presets, if you made any
+rm -rf ~/.config/omapen
+```
+
+Nothing else is left behind: the session file and the last result live in
+`$XDG_RUNTIME_DIR/omapen`, which the system clears on logout.
+
 ## Where the text comes from
 
 1. Whatever the focused window copies on Ctrl+C right now. This is the live
@@ -124,3 +148,12 @@ symlinked plugin directory, so an out-of-tree checkout needs
 `bin/omapen selftest` covers the prompt building, the agent command table, the
 settings reader and the run path. The compositor parts (focus, paste, the
 Ctrl+A fallback) need a session and are checked by hand.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
+
+The plugin ships no bundled dependencies. It shells out to `jq`,
+`wl-clipboard`, `wtype` and `hyprctl`, all of which Omarchy already installs,
+and to whichever coding agent you have set up. Nothing is vendored and nothing
+is downloaded at runtime.
