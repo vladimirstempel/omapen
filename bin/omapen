@@ -1,0 +1,350 @@
+#!/bin/bash
+# Everything OmaPen does to the machine: read the selection, ask the
+# agent, put the answer back. The QML side only draws, so this stays runnable
+# from a terminal with no shell running.
+
+set -uo pipefail
+
+PLUGIN_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/omapen"
+SESSION="$STATE_DIR/session.json"
+RESULT="$STATE_DIR/result.txt"
+SHELL_JSON="$HOME/.config/omarchy/shell.json"
+USER_PROMPTS="${XDG_CONFIG_HOME:-$HOME/.config}/omapen/prompts.json"
+
+die() { echo "omapen: $*" >&2; exit 1; }
+
+# --------------------------------------------------------------- settings
+
+# Read one value off this plugin's entry in shell.json. Booleans and empty
+# strings are real answers, so this asks whether the key is there rather than
+# leaning on jq's // operator.
+setting() {
+  local key="$1" fallback="$2" value
+  value=$(jq -r --arg k "$key" --arg d "$fallback" '
+    [ .bar.layout // {} | .[]? | .[]? | select(.id == "omapen") ][0] as $e
+    | if ($e | type) == "object" and ($e | has($k)) then ($e[$k] | tostring) else $d end
+  ' "$SHELL_JSON" 2>/dev/null) || value="$fallback"
+  [[ -n $value ]] || value="$fallback"
+  printf '%s' "$value"
+}
+
+prompts_file() {
+  [[ -f $USER_PROMPTS ]] && { printf '%s' "$USER_PROMPTS"; return; }
+  printf '%s' "$PLUGIN_DIR/prompts.json"
+}
+
+# --------------------------------------------------------------- compositor
+
+# Hyprland 0.56 with a Lua config parses `hyprctl dispatch` arguments as Lua, so
+# the Lua form goes first and the hyprlang form is the fallback. Same two-step
+# omarchy's own scripts use.
+focus_lua() { printf "hl.dsp.focus({ window = 'address:%s' })" "$1"; }
+
+hypr_focus() {
+  [[ -n $1 ]] || return 0
+  hyprctl dispatch "$(focus_lua "$1")" >/dev/null 2>&1 ||
+    hyprctl dispatch focuswindow "address:$1" >/dev/null 2>&1
+}
+
+# Keystrokes go through wtype rather than Hyprland's send_shortcut, which
+# resolves keys against the layout in use: under a Cyrillic layout there is no
+# 'v' to find and the paste never happens. wtype brings its own keymap.
+# Each call spawns a virtual keyboard and uploads a keymap, and a second call
+# that arrives before the compositor has settled loses its modifier: Ctrl+A
+# turns into a typed "a", which lands in the user's document. The pause after
+# each press is what keeps that from happening, so do not trim it.
+press() {
+  command -v wtype >/dev/null || die "wtype is not installed"
+  wtype -M ctrl -k "$1" -m ctrl
+  sleep 0.15
+}
+
+# --------------------------------------------------------------- capture
+
+# Ctrl+C in a terminal is SIGINT, not copy, and Ctrl+A moves the cursor. Never
+# press keys into one: read the selection it publishes and leave it alone.
+is_terminal() {
+  case "${1,,}" in
+    kitty | foot | footclient | alacritty | xterm | st | konsole | terminator | \
+      gnome-terminal | *ghostty* | *wezterm* | org.omarchy.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# What counts as "the text I am looking at", in order:
+#
+#   1. What the focused window copies on Ctrl+C right now. This is the only way
+#      to tell a live selection from the one PRIMARY has been holding since some
+#      other window an hour ago, and that stale selection is exactly what makes
+#      the panel open showing yesterday's sentence.
+#   2. The whole focused field, via Ctrl+A Ctrl+C.
+#   3. PRIMARY, for the windows that are off limits to keystrokes.
+#   4. The clipboard, last, because it holds whatever you copied at some point
+#      today and reaching for it earlier is how the wrong text gets rewritten.
+capture() {
+  mkdir -p "$STATE_DIR"
+  local active address class text source saved
+  if [[ ${1:-} == "--if-stale" && -f $SESSION ]]; then
+    local age=$(( $(date +%s) - $(stat -c %Y "$SESSION") ))
+    ((age < 3)) && return 0
+  fi
+
+  active=$(hyprctl activewindow -j 2>/dev/null)
+  address=$(jq -r '.address // ""' <<<"$active")
+  class=$(jq -r '.class // ""' <<<"$active")
+  saved=$(wl-paste --no-newline 2>/dev/null)
+  text=""
+  source=""
+
+  if [[ -n $address ]] && ! is_terminal "$class" && [[ $(setting captureFallback true) == "true" ]]; then
+    press c
+    sleep 0.2
+    text=$(wl-paste --no-newline 2>/dev/null)
+    # A window with nothing selected leaves the clipboard exactly as it was.
+    [[ $text == "$saved" ]] && text=""
+    [[ -n $text ]] && source="selection"
+
+    if [[ -z $text ]]; then
+      # Ctrl+A also leaves the field selected, which is what makes the result
+      # land on top of it rather than beside it.
+      press a
+      press c
+      sleep 0.25
+      text=$(wl-paste --no-newline 2>/dev/null)
+      [[ $text == "$saved" ]] && text=""
+      [[ -n $text ]] && source="field"
+    fi
+
+    [[ -n $saved ]] && printf '%s' "$saved" | wl-copy
+  fi
+
+  if [[ -z $text ]]; then
+    text=$(wl-paste --primary --no-newline 2>/dev/null)
+    [[ -n $text ]] && source="selection"
+  fi
+
+  if [[ -z $text ]]; then
+    text="$saved"
+    source="clipboard"
+  fi
+
+  jq -n --arg text "$text" --arg source "$source" --arg address "$address" \
+    '{text: $text, source: $source, address: $address}' >"$SESSION"
+}
+
+# --------------------------------------------------------------- agent
+
+resolve_agent() {
+  local configured
+  configured=$(setting agent "System default")
+  if [[ $configured != "System default" && -n $configured ]]; then
+    printf '%s' "$configured"
+    return
+  fi
+  omarchy-default-agent 2>/dev/null
+}
+
+# One line per agent, spelled the way omarchy-agent spells them. Anything not
+# listed gets the -p that most of them understand, which either works or fails
+# loudly enough to report.
+# Rewriting a paragraph is the cheapest thing an agent will ever be asked to
+# do, so each agent gets its small fast model unless the Model setting names
+# another one. Agents whose model ids depend on the user's own provider config
+# (opencode, copilot, crush) are left on whatever they already default to.
+default_model() {
+  case "$1" in
+    claude) printf 'haiku' ;;
+    codex)  printf 'gpt-5.6-luna' ;;
+    gemini) printf 'gemini-3.7-flash' ;;
+  esac
+}
+
+agent_command() {
+  local agent="$1" model="$2"
+  [[ -n $model ]] || model=$(default_model "$agent")
+  case "$agent" in
+    claude)
+      printf '%s\n' claude -p --strict-mcp-config --mcp-config '{"mcpServers":{}}'
+      [[ -n $model ]] && printf '%s\n' --model "$model"
+      ;;
+    codex)
+      # The empty workdir is not a git repo, which codex refuses to run in unless told.
+      printf '%s\n' codex exec --skip-git-repo-check
+      # No planning wanted here, just the rewrite.
+      printf '%s\n' -c 'model_reasoning_effort="minimal"'
+      [[ -n $model ]] && printf '%s\n' --model "$model"
+      ;;
+    gemini)
+      # -p takes the prompt as its value, so it goes last: run() appends it.
+      printf '%s\n' gemini
+      [[ -n $model ]] && printf '%s\n' -m "$model"
+      printf '%s\n' -p
+      ;;
+    opencode)
+      printf '%s\n' opencode run
+      [[ -n $model ]] && printf '%s\n' -m "$model"
+      ;;
+    crush)
+      printf '%s\n' crush run
+      ;;
+    copilot)
+      printf '%s\n' copilot --allow-all
+      [[ -n $model ]] && printf '%s\n' --model "$model"
+      printf '%s\n' -p
+      ;;
+    *)
+      printf '%s\n' "$agent" -p
+      ;;
+  esac
+}
+
+SYSTEM_PROMPT="You are a writing assistant. Rewrite the text the user gives you \
+following their instruction. Reply with the rewritten text only: no preamble, no \
+explanation, no surrounding quotes, no markdown fences. Keep the original \
+language unless the instruction says otherwise. Keep the original formatting, \
+line breaks and placeholders intact."
+
+build_prompt() {
+  local instruction="$1" text="$2"
+  printf '%s\n\n<text>\n%s\n</text>' "$instruction" "$text"
+}
+
+# omapen run <preset-id|-> [free prompt when preset is -]
+run() {
+  local preset="${1:-rewrite}" free="${2:-}" instruction text agent model
+  text=$(jq -r '.text // ""' "$SESSION" 2>/dev/null)
+  [[ -n $text ]] || die "nothing captured, run: omapen capture"
+
+  if [[ $preset == "-" ]]; then
+    instruction="$free"
+  else
+    instruction=$(jq -r --arg id "$preset" '.[] | select(.id == $id) | .instruction' "$(prompts_file)")
+  fi
+  [[ -n $instruction ]] || die "unknown preset '$preset'"
+
+  agent=$(resolve_agent)
+  [[ -n $agent ]] || die "no agent set, run: omarchy default agent <name>"
+  model=$(setting model "")
+
+  local prompt workdir
+  prompt=$(build_prompt "$instruction" "$text")
+  # An empty working directory so no project CLAUDE.md, no repo, and no MCP
+  # config from wherever the shell happens to be running leaks into a rewrite.
+  workdir=$(mktemp -d)
+  trap 'rm -rf "$workdir"' RETURN
+
+  if [[ -n ${OMAPEN_AGENT_CMD:-} ]]; then
+    # Test seam: OMAPEN_AGENT_CMD=cat runs the whole chain without spending tokens.
+    ( cd "$workdir" && printf '%s' "$prompt" | eval "$OMAPEN_AGENT_CMD" )
+    return
+  fi
+
+  command -v "$agent" >/dev/null || die "$agent is not installed"
+
+  local cmd=()
+  mapfile -t cmd < <(agent_command "$agent" "$model")
+  [[ $agent == claude ]] && cmd+=(--system-prompt "$SYSTEM_PROMPT")
+  cmd+=("$prompt")
+
+  # </dev/null or the agent waits three seconds for a stdin that never comes.
+  # Kept on disk as well so `insert` has something to paste without the result
+  # having to travel back through the caller.
+  ( cd "$workdir" && timeout 180 "${cmd[@]}" </dev/null ) | tee "$RESULT"
+  return "${PIPESTATUS[0]}"
+}
+
+# --------------------------------------------------------------- insert
+
+# Put the result where the text came from. The window has to be focused again
+# first: the panel took focus when it opened, and a client that is not focused
+# is not allowed to read the clipboard, so the paste would arrive empty.
+insert() {
+  local text address saved
+  # Only `insert -` reads stdin. Reading it by default hangs the moment the
+  # caller is a process that leaves its own stdin open, which the shell does.
+  if [[ ${1:-} == "-" ]]; then text=$(cat); else text=$(cat "$RESULT" 2>/dev/null); fi
+  [[ -n ${text:-} ]] || die "nothing to insert"
+  address=$(jq -r '.address // ""' "$SESSION" 2>/dev/null)
+  [[ -n $address ]] || die "no window recorded, run: omapen capture"
+  saved=$(wl-paste --no-newline 2>/dev/null)
+
+  printf '%s' "$text" | wl-copy
+  hypr_focus "$address"
+  sleep 0.25
+  press v
+
+  # ponytail: fixed wait before handing the clipboard back, because the paste is
+  # the receiving app's asynchronous read and there is no event to wait on. If a
+  # slow app ever pastes the old contents, raise this or drop the restore.
+  sleep 0.4
+  [[ -n $saved ]] && printf '%s' "$saved" | wl-copy
+}
+
+# --------------------------------------------------------------- selftest
+
+selftest() {
+  local out
+  out=$(build_prompt "Make it shorter" "Hello world")
+  [[ $out == *"Make it shorter"* ]] || die "selftest: instruction missing from prompt"
+  [[ $out == *"<text>"$'\n'"Hello world"* ]] || die "selftest: text missing from prompt"
+
+  out=$(agent_command claude "" | tr '\n' ' ')
+  [[ $out == "claude -p --strict-mcp-config --mcp-config {\"mcpServers\":{}} --model haiku " ]] || die "selftest: claude command wrong: $out"
+  out=$(agent_command codex "" | tr '\n' ' ')
+  [[ $out == "codex exec --skip-git-repo-check -c model_reasoning_effort=\"minimal\" --model gpt-5.6-luna " ]] || die "selftest: codex command wrong: $out"
+  out=$(agent_command gemini "flash" | tr '\n' ' ')
+  [[ $out == "gemini -m flash -p " ]] || die "selftest: model flag wrong: $out"
+  # The flag that swallows the prompt must be last, since run() appends it there.
+  out=$(agent_command copilot "" | tr '\n' ' ')
+  [[ $out == "copilot --allow-all -p " ]] || die "selftest: copilot command wrong: $out"
+  out=$(agent_command someagent "" | tr '\n' ' ')
+  [[ $out == "someagent -p " ]] || die "selftest: fallback command wrong: $out"
+
+  # Settings come off the live shell.json, so assert the shape rather than a
+  # value: a missing key must fall back, a present one must win.
+  out=$(setting definitelyNotAKey "fallback")
+  [[ $out == "fallback" ]] || die "selftest: missing setting did not fall back: $out"
+
+  is_terminal kitty && is_terminal org.omarchy.agent && is_terminal com.mitchellh.ghostty ||
+    die "selftest: terminal detection missed one"
+  ! is_terminal chromium && ! is_terminal code || die "selftest: terminal detection too eager"
+
+  out=$(focus_lua 0xdead)
+  [[ $out == "hl.dsp.focus({ window = 'address:0xdead' })" ]] || die "selftest: focus lua wrong: $out"
+
+  # Every shipped preset needs an id and an instruction, or the panel renders a
+  # button that cannot run.
+  jq -e 'length > 0 and all(.[]; has("id") and has("label") and (.instruction | length > 0))' \
+    "$(prompts_file)" >/dev/null || die "selftest: prompts.json is malformed"
+
+  # Its own session file: a selftest that clobbers the captured text would
+  # throw away whatever the user had selected a second ago.
+  SESSION=$(mktemp)
+  jq -n '{text: "Hello world", source: "selftest", address: ""}' >"$SESSION"
+  out=$(OMAPEN_AGENT_CMD=cat run rewrite)
+  rm -f "$SESSION"
+  [[ $out == *"Hello world"* ]] || die "selftest: run did not reach the agent"
+
+  echo "omapen selftest: ok"
+}
+
+# --------------------------------------------------------------- entry
+
+case "${1:-}" in
+  capture) shift; capture "$@" ;;
+  open)
+    # Pressing the keybinding again to dismiss the panel must not capture: the
+    # panel holds the keyboard, so Ctrl+A Ctrl+C would run inside our own
+    # prompt field instead of the window the text came from.
+    hyprctl layers 2>/dev/null | grep -q omarchy-keyboard-panel || capture
+    omarchy-shell shell toggle omapen '{}' >/dev/null
+    ;;
+  run) shift; run "$@" ;;
+  insert) shift; insert "$@" ;;
+  selftest) selftest ;;
+  *)
+    echo "Usage: omapen capture [--if-stale] | open | run <preset|-> [prompt] | insert [-] | selftest" >&2
+    exit 1
+    ;;
+esac

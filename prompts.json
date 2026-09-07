@@ -1,0 +1,50 @@
+[
+  {
+    "id": "rewrite",
+    "label": "Rewrite",
+    "icon": "󰑖",
+    "instruction": "Rewrite this so it reads better. Keep the meaning, the voice and roughly the length."
+  },
+  {
+    "id": "shorten",
+    "label": "Shorten",
+    "icon": "󰦕",
+    "instruction": "Cut this down. Keep every point that carries information, drop the rest. Do not add anything."
+  },
+  {
+    "id": "elaborate",
+    "label": "Elaborate",
+    "icon": "󰦔",
+    "instruction": "Expand this with the detail a reader would ask for next. Invent no facts: only draw out what the text already implies."
+  },
+  {
+    "id": "formal",
+    "label": "More formal",
+    "icon": "󰛡",
+    "instruction": "Rewrite this in a professional register. No slang, no contractions, no stiffness either."
+  },
+  {
+    "id": "casual",
+    "label": "More casual",
+    "icon": "󰊤",
+    "instruction": "Rewrite this the way you would say it to a colleague. Plain, warm, not sloppy."
+  },
+  {
+    "id": "grammar",
+    "label": "Fix grammar",
+    "icon": "󰓆",
+    "instruction": "Fix spelling, grammar and punctuation. Change nothing else: not the wording, not the tone, not the structure."
+  },
+  {
+    "id": "bullets",
+    "label": "To bullets",
+    "icon": "󰈙",
+    "instruction": "Turn this into a short bulleted list, one idea per bullet, in the order the text makes them."
+  },
+  {
+    "id": "translate-en",
+    "label": "Translate to English",
+    "icon": "󰊿",
+    "instruction": "Translate this into English. Match the register of the original. Output the translation only."
+  }
+]
