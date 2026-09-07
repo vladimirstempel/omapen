@@ -8,6 +8,9 @@ Select some text, press `SUPER + SHIFT + H`, pick an action or type your own.
 The result comes back in a panel you can paste, or straight over the selection.
 Keyboard the whole way: open, type, Return to run, Ctrl+Return to paste it back.
 
+![The OmaPen panel: the captured sentence, the eight presets, a free prompt
+field, and the rewrite with Replace, Copy and Again](docs/preview.png)
+
 ## Requirements
 
 - Omarchy 4 (the Quickshell `omarchy-shell`, plugin schema 1)
