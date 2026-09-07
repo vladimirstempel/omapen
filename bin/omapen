@@ -157,6 +157,23 @@ capture() {
     '{text: $text, source: $source, address: $address}' >"$SESSION"
 }
 
+# Text that is not selected anywhere: something you are about to write, a
+# sentence from your phone, a paragraph you want to fix before it goes into a
+# document. No keystrokes are sent for this one, so it also works when the
+# focused window is a terminal, where capture deliberately refuses to press
+# anything.
+compose() {
+  mkdir -p "$STATE_DIR"
+  settext ""
+}
+
+# The panel hands typed text back through here before it runs anything: the
+# agent reads the session file, never the popup.
+settext() {
+  mkdir -p "$STATE_DIR"
+  jq -n --arg text "$1" '{text: $text, source: "manual", address: ""}' >"$SESSION"
+}
+
 # --------------------------------------------------------------- agent
 
 resolve_agent() {
@@ -360,6 +377,19 @@ selftest() {
   jq -e 'length > 0 and all(.[]; has("id") and has("label") and (.instruction | length > 0))' \
     "$(prompts_file)" >/dev/null || die "selftest: prompts.json is malformed"
 
+  # compose has to leave the panel something it can tell apart from a failed
+  # capture, and settext has to survive the quoting of a real paragraph.
+  SESSION=$(mktemp)
+  compose
+  [[ $(jq -r '.source' "$SESSION") == manual ]] || die "selftest: compose did not mark the session manual"
+  [[ $(jq -r '.text' "$SESSION") == "" ]] || die "selftest: compose left text behind"
+  settext 'He said "no", then left.
+Twice.'
+  [[ $(jq -r '.text' "$SESSION" | head -1) == 'He said "no", then left.' ]] ||
+    die "selftest: settext mangled the text"
+  [[ $(jq -r '.address' "$SESSION") == "" ]] || die "selftest: manual session claims a window"
+  rm -f "$SESSION"
+
   # Its own session file: a selftest that clobbers the captured text would
   # throw away whatever the user had selected a second ago.
   SESSION=$(mktemp)
@@ -382,11 +412,18 @@ case "${1:-}" in
     hyprctl layers 2>/dev/null | grep -q omarchy-keyboard-panel || capture
     omarchy-shell shell toggle omapen '{}' >/dev/null
     ;;
+  compose)
+    # Same dismissal guard as open: a second press while the panel is up must
+    # close it, not wipe the paragraph you were halfway through typing.
+    hyprctl layers 2>/dev/null | grep -q omarchy-keyboard-panel || compose
+    omarchy-shell shell toggle omapen '{}' >/dev/null
+    ;;
+  settext) shift; settext "${1:-}" ;;
   run) shift; run "$@" ;;
   insert) shift; insert "$@" ;;
   selftest) selftest ;;
   *)
-    echo "Usage: omapen capture [--if-stale] | open | run <preset|-> [prompt] | insert [-] | selftest" >&2
+    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text> | run <preset|-> [prompt] | insert [-] | selftest" >&2
     exit 1
     ;;
 esac

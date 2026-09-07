@@ -33,11 +33,18 @@ Panel {
   readonly property bool busy: runProc.running
   readonly property bool replaceMode: root.setting("resultMode", "Show in panel") === "Replace the selection"
 
+  // Compose mode: opened with nothing captured, so the panel supplies the text
+  // instead of the screen. There is no window behind it to paste into, which
+  // is why Replace disappears and Copy is the way out.
+  readonly property bool manual: root.sourceKind === "manual"
+  readonly property string workingText: root.manual ? sourceInput.text.trim() : root.sourceText
+
   onOpenedChanged: {
     if (opened) {
       result = ""
       errorText = ""
       freeInput.text = ""
+      sourceInput.text = ""
       sessionFile.reload()
     } else if (runProc.running) {
       runProc.running = false
@@ -45,17 +52,25 @@ Panel {
   }
 
   function ask(presetId, free) {
-    if (root.sourceText === "") return
+    if (root.workingText === "") return
     result = ""
     errorText = ""
     pending = free ? "-" : presetId
     runProc.command = free ? [root.cli, "run", "-", free] : [root.cli, "run", presetId]
-    runProc.running = true
+    // The agent reads the session file, so typed text has to land there first
+    // rather than travel alongside the run.
+    if (root.manual) {
+      setTextProc.command = [root.cli, "settext", root.workingText]
+      setTextProc.running = true
+    } else {
+      runProc.running = true
+    }
   }
 
   function submit(apply) {
     if (apply) {
-      if (root.result !== "") root.apply()
+      // Ctrl+Return is "paste it back", which compose mode has no window for.
+      if (!root.manual && root.result !== "") root.apply()
     } else if (freeInput.text !== "") {
       root.ask("", freeInput.text)
     }
@@ -129,6 +144,14 @@ Panel {
   }
 
   Process {
+    id: setTextProc
+    onExited: function (exitCode) {
+      if (exitCode === 0) runProc.running = true
+      else root.errorText = "Could not hand the text over (exit " + exitCode + ")"
+    }
+  }
+
+  Process {
     id: runProc
     stdout: StdioCollector {
       waitForEnd: true
@@ -145,7 +168,7 @@ Panel {
         return
       }
       root.errorText = ""
-      if (root.replaceMode && root.result !== "") root.apply()
+      if (root.replaceMode && !root.manual && root.result !== "") root.apply()
     }
   }
 
@@ -184,7 +207,7 @@ Panel {
     // Chrome versions of this work. It stays visible in every state so focus
     // never has to move, and it owns Esc because the key catcher only sees keys
     // while nothing else has focus.
-    focusTarget: freeInput
+    focusTarget: root.manual ? sourceInput : freeInput
     contentWidth: popup.fittedContentWidth(Style.space(root.setting("panelWidth", 480)))
     contentHeight: popup.fittedContentHeight(column.implicitHeight)
 
@@ -221,7 +244,8 @@ Panel {
           Text {
             text: root.sourceKind === "selection" ? "SELECTION"
                 : root.sourceKind === "clipboard" ? "CLIPBOARD"
-                : root.sourceKind === "field" ? "WHOLE FIELD" : ""
+                : root.sourceKind === "field" ? "WHOLE FIELD"
+                : root.sourceKind === "manual" ? "YOUR TEXT" : ""
             color: Qt.darker(root.bar.foreground, 1.6)
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.caption
@@ -232,9 +256,39 @@ Panel {
         }
 
         // ---------- what we are working on ----------
+        // ponytail: single-line field, the kit ships no multi-line input. Fine
+        // for a sentence or a paragraph; swap in a styled TextArea if people
+        // start pasting whole documents in here.
+        TextField {
+          id: sourceInput
+          width: parent.width
+          visible: root.manual
+          enabled: !root.busy
+          placeholderText: "Paste or type the text to work on"
+          foreground: root.bar.foreground
+          font.family: root.bar.fontFamily
+          font.pixelSize: Style.font.body
+          // Return moves on to the instruction rather than doing nothing: type
+          // the text, Return, say what to do with it, Return. Swallowing it is
+          // required either way, since an unaccepted Return reaches the key
+          // catcher, which reads it as "activate" and closes the panel.
+          Keys.onReturnPressed: function (event) {
+            event.accepted = true
+            freeInput.forceActiveFocus()
+          }
+          Keys.onEnterPressed: function (event) {
+            event.accepted = true
+            freeInput.forceActiveFocus()
+          }
+          Keys.onEscapePressed: function (event) {
+            event.accepted = true
+            root.close()
+          }
+        }
+
         Text {
           width: parent.width
-          visible: root.sourceText !== ""
+          visible: !root.manual && root.sourceText !== ""
           text: root.sourceText
           color: Qt.darker(root.bar.foreground, 1.5)
           font.family: root.bar.fontFamily
@@ -246,7 +300,7 @@ Panel {
 
         Text {
           width: parent.width
-          visible: root.sourceText === ""
+          visible: !root.manual && root.sourceText === ""
           text: "Nothing to work on. Select some text, then open this again."
           color: Qt.darker(root.bar.foreground, 1.5)
           font.family: root.bar.fontFamily
@@ -256,7 +310,7 @@ Panel {
 
         PanelSeparator {
           width: parent.width
-          visible: root.sourceText !== ""
+          visible: root.manual || root.sourceText !== ""
         }
 
         // ---------- actions ----------
@@ -268,7 +322,10 @@ Panel {
         Flow {
           width: parent.width
           spacing: Style.space(6)
-          visible: root.sourceText !== ""
+          // Shown from the start in compose mode, disabled until there is
+          // something to act on: a panel that grows buttons as you type moves
+          // the ones you were aiming for.
+          visible: root.manual || root.sourceText !== ""
 
           Repeater {
             model: root.presets
@@ -280,7 +337,7 @@ Panel {
               foreground: root.bar.foreground
               fontFamily: root.bar.fontFamily
               bordered: true
-              enabled: !root.busy
+              enabled: !root.busy && root.workingText !== ""
               selected: root.pending === modelData.id && (root.busy || root.result !== "")
               onClicked: root.ask(modelData.id, "")
             }
@@ -290,7 +347,7 @@ Panel {
         TextField {
           id: freeInput
           width: parent.width
-          enabled: root.sourceText !== "" && !root.busy
+          enabled: root.workingText !== "" && !root.busy
           placeholderText: root.result === "" ? "Or say what to do with it" : "Ask for another pass"
           foreground: root.bar.foreground
           font.family: root.bar.fontFamily
@@ -368,6 +425,9 @@ Panel {
           Button {
             text: "Replace"
             iconText: "󰆐"
+            // Compose mode never recorded a window, so there is nowhere to
+            // paste back to and Copy is the only sensible exit.
+            visible: !root.manual
             foreground: root.bar.foreground
             fontFamily: root.bar.fontFamily
             bordered: true
