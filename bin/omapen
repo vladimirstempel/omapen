@@ -219,8 +219,10 @@ agent_command() {
       [[ -n $model ]] && printf '%s\n' --model "$model"
       ;;
     gemini)
+      # The empty workdir is not a directory gemini has been told to trust, and
+      # it refuses to run in one. Same shape as codex and its git check.
       # -p takes the prompt as its value, so it goes last: run() appends it.
-      printf '%s\n' gemini
+      printf '%s\n' gemini --skip-trust
       [[ -n $model ]] && printf '%s\n' -m "$model"
       printf '%s\n' -p
       ;;
@@ -276,12 +278,35 @@ clean_output() {
 # since an agent that ignored the instruction has usually still answered.
 extract_answer() {
   local raw="$1" inner
+  # Scanned from the end, because the instruction has to name the tag in order
+  # to ask for it: an agent that repeats the prompt back would otherwise have
+  # its own instructions matched instead of its answer. Last closing tag first,
+  # then the last opening tag before it.
   [[ $raw == *"<rewrite>"* && $raw == *"</rewrite>"* ]] || { printf '%s' "$raw"; return; }
-  inner=${raw#*<rewrite>}
-  inner=${inner%%</rewrite>*}
+  inner=${raw%</rewrite>*}
+  [[ $inner == *"<rewrite>"* ]] || { printf '%s' "$raw"; return; }
+  inner=${inner##*<rewrite>}
   inner=${inner#$'\n'}
   inner=${inner%$'\n'}
   printf '%s' "$inner"
+}
+
+# A failing agent reports itself in its own idiom: a sentence, then a Node
+# stack trace, then the JSON it was holding. The sentence is the part anyone
+# can act on, and it comes first, so stop at the first stack frame. A panel
+# filled with frames from inside the agent's bundle says nothing.
+clean_error() {
+  local text trimmed
+  text=$(clean_output |
+    awk '/^[[:space:]]+at [^[:space:]]/ { exit } { print }' |
+    grep -v '^[[:space:]]*$')
+  # Advice about terminal colour support is never why a run failed, but it is
+  # printed first and would be the whole message a person sees. Dropped only
+  # when something else survives, so a warning-only failure still says
+  # something.
+  trimmed=$(printf '%s\n' "$text" | grep -viE '^warning:')
+  [[ -n $trimmed ]] && text=$trimmed
+  printf '%s\n' "$text" | head -6 | cut -c1-300
 }
 
 # omapen run <preset-id|-> [free prompt when preset is -]
@@ -340,8 +365,8 @@ run() {
   # rather than letting them through as text to paste into a document.
   if (( rc != 0 )) || [[ -z $out ]]; then
     local detail
-    detail=$(tail -c 2000 "$workdir/stderr" | clean_output)
-    [[ -n $detail ]] || detail=$(printf '%s' "$out" | tail -c 2000)
+    detail=$(clean_error <"$workdir/stderr")
+    [[ -n $detail ]] || detail=$(printf '%s' "$out" | clean_error)
     [[ -n $detail ]] || detail="$agent produced nothing"
     printf '%s\n' "$detail" >&2
     return $(( rc == 0 ? 1 : rc ))
@@ -392,7 +417,7 @@ selftest() {
   out=$(agent_command codex "" | tr '\n' ' ')
   [[ $out == "codex exec --skip-git-repo-check -c model_reasoning_effort=\"none\" --model gpt-5.6-luna " ]] || die "selftest: codex command wrong: $out"
   out=$(agent_command gemini "flash" | tr '\n' ' ')
-  [[ $out == "gemini -m flash -p " ]] || die "selftest: model flag wrong: $out"
+  [[ $out == "gemini --skip-trust -m flash -p " ]] || die "selftest: model flag wrong: $out"
   # The flag that swallows the prompt must be last, since run() appends it there.
   out=$(agent_command copilot "" | tr '\n' ' ')
   [[ $out == "copilot --allow-all -p " ]] || die "selftest: copilot command wrong: $out"
@@ -436,6 +461,29 @@ selftest() {
   # Whatever the agent paints on stdout must not reach the document.
   out=$(printf '\033[0m\n> task-orchestrator \xc2\xb7 some-model\n\033[0mIf you use a gateway.\n' | clean_output)
   [[ $out == "If you use a gateway." ]] || die "selftest: output cleaning left decoration: $(printf '%q' "$out")"
+  # A stack trace is not something a person can act on, so the message alone
+  # has to survive and the frames have to go.
+  out=$(clean_error <<'TRACE'
+Error authenticating: IneligibleTierError: this client is no longer supported
+    at throwIneligibleOrProjectIdError (file:///home/x/bundle/chunk.js:310176:11)
+    at _doSetupUser (file:///home/x/bundle/chunk.js:310165:5) {
+  ineligibleTiers: [ { reasonCode: 'UNSUPPORTED_CLIENT' } ]
+}
+TRACE
+)
+  [[ $out == "Error authenticating: IneligibleTierError: this client is no longer supported" ]] ||
+    die "selftest: error condensing wrong: $(printf '%q' "$out")"
+  out=$(printf 'Warning: 256-color support not detected.\nError authenticating: nope\n' | clean_error)
+  [[ $out == "Error authenticating: nope" ]] || die "selftest: a warning outranked the error: $(printf '%q' "$out")"
+  out=$(printf 'Warning: that is all there is\n' | clean_error)
+  [[ $out == "Warning: that is all there is" ]] || die "selftest: a warning-only failure said nothing"
+  out=$(printf 'No providers configured\n' | clean_error)
+  [[ $out == "No providers configured" ]] || die "selftest: plain error was mangled: $out"
+
+  out=$(extract_answer $'ask for <rewrite> tags\n<rewrite>\nreal answer\n</rewrite>')
+  [[ $out == "real answer" ]] || die "selftest: extraction matched the instruction, not the answer: $(printf '%q' "$out")"
+  out=$(extract_answer $'<rewrite>unclosed and truncated')
+  [[ $out == '<rewrite>unclosed and truncated' ]] || die "selftest: truncated answer was eaten"
   out=$(extract_answer $'chatter first\n<rewrite>\nline one\nline two\n</rewrite>')
   [[ $out == $'line one\nline two' ]] || die "selftest: answer extraction wrong: $(printf '%q' "$out")"
   out=$(extract_answer 'no tags at all')
@@ -478,9 +526,12 @@ Twice.'
   # throw away whatever the user had selected a second ago.
   SESSION=$(mktemp)
   jq -n '{text: "Hello world", source: "selftest", address: ""}' >"$SESSION"
-  out=$(OMAPEN_AGENT_CMD=cat run rewrite)
+  # Answers the way an agent does, so the prompt reaching it and the answer
+  # coming back out are both proved by one run.
+  out=$(OMAPEN_AGENT_CMD='grep -o "Hello world" | head -1 | sed "s|^|<rewrite>|; s|$|</rewrite>|"' run rewrite)
   rm -f "$SESSION"
   [[ $out == *"Hello world"* ]] || die "selftest: run did not reach the agent"
+  [[ $out != *"writing assistant"* ]] || die "selftest: the rules leaked into the result"
 
   echo "omapen selftest: ok"
 }
