@@ -88,6 +88,45 @@ Panel {
     insertProc.running = true
   }
 
+  // Omarchy is a keyboard-first desktop, so everything the panel can do has to
+  // be reachable without a pointer. Focus moves over an explicit ring rather
+  // than Qt's focus chain, which would happily walk out of the panel and into
+  // the rest of the shell.
+  function focusRing() {
+    var ring = []
+    if (sourceInput.visible) ring.push(sourceInput)
+    for (var i = 0; i < presetRepeater.count; i++) {
+      var item = presetRepeater.itemAt(i)
+      if (item && item.visible && item.enabled) ring.push(item)
+    }
+    ring.push(freeInput)
+    if (root.result !== "") {
+      if (replaceButton.visible) ring.push(replaceButton)
+      ring.push(copyButton, againButton)
+    }
+    return ring
+  }
+
+  function moveFocus(step) {
+    var ring = focusRing()
+    if (ring.length === 0) return
+    var at = -1
+    for (var i = 0; i < ring.length; i++) if (ring[i].activeFocus) { at = i; break }
+    // No focus yet lands on the first entry going forward, the last going back.
+    ring[(at + step + ring.length) % ring.length].forceActiveFocus()
+  }
+
+  // Alt and a digit runs an action from wherever you are, mid-sentence
+  // included. Eight actions is more than anyone wants to walk a Tab ring for
+  // the one they use every time, and Alt leaves the digits themselves typable.
+  function presetShortcut(event) {
+    if (!(event.modifiers & Qt.AltModifier)) return false
+    var n = event.key - Qt.Key_1
+    if (n < 0 || n >= root.presets.length || n > 8) return false
+    root.ask(root.presets[n].id, "")
+    return true
+  }
+
   function presetLabel(id) {
     for (var i = 0; i < presets.length; i++) if (presets[i].id === id) return presets[i].label
     return "Thinking"
@@ -217,9 +256,18 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       onCloseRequested: root.close()
+      // Tab moves inside the panel rather than between panels: with a text
+      // field and ten actions in here, leaving is not what Tab is for.
       onTabRequested: function (direction) {
-        root.switchPanel(direction)
+        root.moveFocus(direction)
       }
+      onMoveRequested: function (dx, dy) {
+        root.moveFocus(dx + dy > 0 ? 1 : -1)
+      }
+      // A focused field owns every key, or j and k would move the cursor
+      // instead of being typed. Tab and Escape are handled on the fields
+      // themselves for that reason.
+      blocked: sourceInput.activeFocus || freeInput.activeFocus
 
       Column {
         id: column
@@ -270,6 +318,11 @@ Panel {
           foreground: root.bar.foreground
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.body
+          // The key catcher is blocked while this field has focus, so the keys
+          // that leave it are handled here.
+          Keys.onTabPressed: function (event) { event.accepted = true; root.moveFocus(1) }
+          Keys.onBacktabPressed: function (event) { event.accepted = true; root.moveFocus(-1) }
+          Keys.onPressed: function (event) { if (root.presetShortcut(event)) event.accepted = true }
           // Return moves on to the instruction rather than doing nothing: type
           // the text, Return, say what to do with it, Return. Swallowing it is
           // required either way, since an unaccepted Return reaches the key
@@ -330,6 +383,7 @@ Panel {
           visible: root.manual || root.sourceText !== ""
 
           Repeater {
+            id: presetRepeater
             model: root.presets
 
             Button {
@@ -339,9 +393,23 @@ Panel {
               foreground: root.bar.foreground
               fontFamily: root.bar.fontFamily
               bordered: true
+              focusable: true
               enabled: !root.busy && root.workingText !== ""
               selected: root.pending === modelData.id && (root.busy || root.result !== "")
               onClicked: root.ask(modelData.id, "")
+
+              // The kit draws its focus ring in the foreground colour, which on a
+              // panel of bordered buttons is nearly invisible. Keyboard users
+              // need to see where they are at a glance, so the ring is redrawn
+              // in the theme accent.
+              Rectangle {
+                anchors.fill: parent
+                visible: parent.activeFocus
+                color: "transparent"
+                radius: Style.cornerRadius
+                border.width: 2
+                border.color: Color.accent
+              }
             }
           }
         }
@@ -354,6 +422,11 @@ Panel {
           foreground: root.bar.foreground
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.body
+          // The key catcher is blocked while this field has focus, so the keys
+          // that leave it are handled here.
+          Keys.onTabPressed: function (event) { event.accepted = true; root.moveFocus(1) }
+          Keys.onBacktabPressed: function (event) { event.accepted = true; root.moveFocus(-1) }
+          Keys.onPressed: function (event) { if (root.presetShortcut(event)) event.accepted = true }
           // Return has to be swallowed here. Unaccepted it bubbles up to the
           // key catcher, which reads it as "activate" and closes the panel out
           // from under the run that just started.
@@ -425,6 +498,7 @@ Panel {
           visible: root.result !== ""
 
           Button {
+            id: replaceButton
             text: "Replace"
             iconText: "󰆐"
             // Compose mode never recorded a window, so there is nowhere to
@@ -433,29 +507,73 @@ Panel {
             foreground: root.bar.foreground
             fontFamily: root.bar.fontFamily
             bordered: true
+            focusable: true
             onClicked: root.apply()
+
+            // The kit draws its focus ring in the foreground colour, which on a
+            // panel of bordered buttons is nearly invisible. Keyboard users
+            // need to see where they are at a glance, so the ring is redrawn
+            // in the theme accent.
+            Rectangle {
+              anchors.fill: parent
+              visible: parent.activeFocus
+              color: "transparent"
+              radius: Style.cornerRadius
+              border.width: 2
+              border.color: Color.accent
+            }
           }
 
           Button {
+            id: copyButton
             text: "Copy"
             iconText: "󰆏"
             foreground: root.bar.foreground
             fontFamily: root.bar.fontFamily
             bordered: true
+            focusable: true
             onClicked: {
               copyProc.command = ["wl-copy", "--", root.result]
               copyProc.running = true
               root.close()
             }
+
+            // The kit draws its focus ring in the foreground colour, which on a
+            // panel of bordered buttons is nearly invisible. Keyboard users
+            // need to see where they are at a glance, so the ring is redrawn
+            // in the theme accent.
+            Rectangle {
+              anchors.fill: parent
+              visible: parent.activeFocus
+              color: "transparent"
+              radius: Style.cornerRadius
+              border.width: 2
+              border.color: Color.accent
+            }
           }
 
           Button {
+            id: againButton
             text: "Again"
             iconText: "󰑖"
             foreground: root.bar.foreground
             fontFamily: root.bar.fontFamily
             bordered: true
+            focusable: true
             onClicked: root.retry()
+
+            // The kit draws its focus ring in the foreground colour, which on a
+            // panel of bordered buttons is nearly invisible. Keyboard users
+            // need to see where they are at a glance, so the ring is redrawn
+            // in the theme accent.
+            Rectangle {
+              anchors.fill: parent
+              visible: parent.activeFocus
+              color: "transparent"
+              radius: Style.cornerRadius
+              border.width: 2
+              border.color: Color.accent
+            }
           }
         }
       }
