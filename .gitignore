@@ -1,0 +1,4 @@
+# runtime state, never the repo
+PLAN.md
+*.log
+*.png
