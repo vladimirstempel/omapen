@@ -212,8 +212,10 @@ agent_command() {
     codex)
       # The empty workdir is not a git repo, which codex refuses to run in unless told.
       printf '%s\n' codex exec --skip-git-repo-check
-      # No planning wanted here, just the rewrite.
-      printf '%s\n' -c 'model_reasoning_effort="minimal"'
+      # No planning wanted here, just the rewrite. "minimal" reads as a valid
+      # effort to codex but the API rejects it for gpt-5.6-luna, whose scale
+      # starts at "none".
+      printf '%s\n' -c 'model_reasoning_effort="none"'
       [[ -n $model ]] && printf '%s\n' --model "$model"
       ;;
     gemini)
@@ -244,11 +246,42 @@ SYSTEM_PROMPT="You are a writing assistant. Rewrite the text the user gives you 
 following their instruction. Reply with the rewritten text only: no preamble, no \
 explanation, no surrounding quotes, no markdown fences. Keep the original \
 language unless the instruction says otherwise. Keep the original formatting, \
-line breaks and placeholders intact."
+line breaks and placeholders intact. Wrap your answer in <rewrite> and \
+</rewrite> tags with nothing else between them."
 
+# claude takes the rules as a real system prompt. Every other agent has one
+# channel, so they go at the top of the message instead: without them an agent
+# answers the way a chat would, explaining what it would change or offering
+# three versions, and that is what lands in the document.
 build_prompt() {
-  local instruction="$1" text="$2"
+  local instruction="$1" text="$2" agent="${3:-}"
+  [[ $agent == claude ]] || printf '%s\n\n' "$SYSTEM_PROMPT"
   printf '%s\n\n<text>\n%s\n</text>' "$instruction" "$text"
+}
+
+# Agents decorate stdout: colour codes, OSC notification sequences, a header
+# line naming the model they picked. None of it is the rewrite, and all of it
+# would be pasted into the document.
+clean_output() {
+  sed -E -e 's/\x1b\][^\x07\x1b]*(\x07|\x1b\\)//g' -e 's/\x1b\[[0-9;?]*[a-zA-Z]//g' |
+    sed -E '1{/^[[:space:]]*$/d}' |
+    sed -E '1{/^> /d}' |
+    sed -E '1{/^[[:space:]]*$/d}'
+}
+
+# Agents that run their own loop narrate before they answer ("I'll load the
+# formatting skill first..."), and once that narration is text on stdout it is
+# indistinguishable from a rewrite. The tag the system prompt asks for makes
+# the boundary explicit. Output without the tag is passed through untouched,
+# since an agent that ignored the instruction has usually still answered.
+extract_answer() {
+  local raw="$1" inner
+  [[ $raw == *"<rewrite>"* && $raw == *"</rewrite>"* ]] || { printf '%s' "$raw"; return; }
+  inner=${raw#*<rewrite>}
+  inner=${inner%%</rewrite>*}
+  inner=${inner#$'\n'}
+  inner=${inner%$'\n'}
+  printf '%s' "$inner"
 }
 
 # omapen run <preset-id|-> [free prompt when preset is -]
@@ -269,30 +302,54 @@ run() {
   model=$(setting model "")
 
   local prompt workdir
-  prompt=$(build_prompt "$instruction" "$text")
+  prompt=$(build_prompt "$instruction" "$text" "$agent")
   # An empty working directory so no project CLAUDE.md, no repo, and no MCP
   # config from wherever the shell happens to be running leaks into a rewrite.
   workdir=$(mktemp -d)
   trap 'rm -rf "$workdir"' RETURN
 
+  local out rc
   if [[ -n ${OMAPEN_AGENT_CMD:-} ]]; then
-    # Test seam: OMAPEN_AGENT_CMD=cat runs the whole chain without spending tokens.
-    ( cd "$workdir" && printf '%s' "$prompt" | eval "$OMAPEN_AGENT_CMD" )
-    return
+    # Test seam: OMAPEN_AGENT_CMD=cat runs the whole chain without spending
+    # tokens. It replaces the agent only, and its output goes through the same
+    # cleaning and failure handling below, so that handling is what gets tested
+    # rather than bypassed.
+    out=$( cd "$workdir" && printf '%s' "$prompt" | eval "$OMAPEN_AGENT_CMD" 2>"$workdir/stderr" )
+    rc=$?
+  else
+    command -v "$agent" >/dev/null || die "$agent is not installed"
+
+    local cmd=()
+    mapfile -t cmd < <(agent_command "$agent" "$model")
+    [[ $agent == claude ]] && cmd+=(--system-prompt "$SYSTEM_PROMPT")
+    # codex prints a banner, the prompt back at you and any API error to
+    # stdout, and exits 0 while doing it, so its answer has to come from the
+    # file it writes rather than from the stream.
+    [[ $agent == codex ]] && cmd+=(--output-last-message "$workdir/answer")
+    cmd+=("$prompt")
+
+    # </dev/null or the agent waits three seconds for a stdin that never comes.
+    out=$( cd "$workdir" && timeout 180 "${cmd[@]}" </dev/null 2>"$workdir/stderr" )
+    rc=$?
+    [[ $agent == codex ]] && out=$(cat "$workdir/answer" 2>/dev/null)
+  fi
+  out=$(extract_answer "$(printf '%s' "$out" | clean_output)")
+
+  # An agent that failed did not produce a rewrite, whatever it left on stdout.
+  # Send its diagnostics to stderr, where the panel shows them as an error,
+  # rather than letting them through as text to paste into a document.
+  if (( rc != 0 )) || [[ -z $out ]]; then
+    local detail
+    detail=$(tail -c 2000 "$workdir/stderr" | clean_output)
+    [[ -n $detail ]] || detail=$(printf '%s' "$out" | tail -c 2000)
+    [[ -n $detail ]] || detail="$agent produced nothing"
+    printf '%s\n' "$detail" >&2
+    return $(( rc == 0 ? 1 : rc ))
   fi
 
-  command -v "$agent" >/dev/null || die "$agent is not installed"
-
-  local cmd=()
-  mapfile -t cmd < <(agent_command "$agent" "$model")
-  [[ $agent == claude ]] && cmd+=(--system-prompt "$SYSTEM_PROMPT")
-  cmd+=("$prompt")
-
-  # </dev/null or the agent waits three seconds for a stdin that never comes.
   # Kept on disk as well so `insert` has something to paste without the result
   # having to travel back through the caller.
-  ( cd "$workdir" && timeout 180 "${cmd[@]}" </dev/null ) | tee "$RESULT"
-  return "${PIPESTATUS[0]}"
+  printf '%s' "$out" | tee "$RESULT"
 }
 
 # --------------------------------------------------------------- insert
@@ -333,7 +390,7 @@ selftest() {
   out=$(agent_command claude "" | tr '\n' ' ')
   [[ $out == "claude -p --strict-mcp-config --mcp-config {\"mcpServers\":{}} --model haiku " ]] || die "selftest: claude command wrong: $out"
   out=$(agent_command codex "" | tr '\n' ' ')
-  [[ $out == "codex exec --skip-git-repo-check -c model_reasoning_effort=\"minimal\" --model gpt-5.6-luna " ]] || die "selftest: codex command wrong: $out"
+  [[ $out == "codex exec --skip-git-repo-check -c model_reasoning_effort=\"none\" --model gpt-5.6-luna " ]] || die "selftest: codex command wrong: $out"
   out=$(agent_command gemini "flash" | tr '\n' ' ')
   [[ $out == "gemini -m flash -p " ]] || die "selftest: model flag wrong: $out"
   # The flag that swallows the prompt must be last, since run() appends it there.
@@ -368,6 +425,33 @@ selftest() {
     press_until_copied 200 && exit 1
     exit 0
   ) || die "selftest: copy loop did not give up on its deadline"
+
+  # Every agent but claude has to carry the rules inside the message, or it
+  # answers like a chat instead of returning the rewrite.
+  [[ $(build_prompt "Shorten it" "Hi" claude) != *"writing assistant"* ]] ||
+    die "selftest: claude prompt duplicated the system prompt"
+  [[ $(build_prompt "Shorten it" "Hi" codex) == *"writing assistant"* ]] ||
+    die "selftest: non-claude prompt lost the system prompt"
+
+  # Whatever the agent paints on stdout must not reach the document.
+  out=$(printf '\033[0m\n> task-orchestrator \xc2\xb7 some-model\n\033[0mIf you use a gateway.\n' | clean_output)
+  [[ $out == "If you use a gateway." ]] || die "selftest: output cleaning left decoration: $(printf '%q' "$out")"
+  out=$(extract_answer $'chatter first\n<rewrite>\nline one\nline two\n</rewrite>')
+  [[ $out == $'line one\nline two' ]] || die "selftest: answer extraction wrong: $(printf '%q' "$out")"
+  out=$(extract_answer 'no tags at all')
+  [[ $out == "no tags at all" ]] || die "selftest: untagged answer was dropped"
+
+  out=$(printf 'plain answer\nsecond line\n' | clean_output)
+  [[ $out == $'plain answer\nsecond line' ]] || die "selftest: output cleaning damaged a plain answer"
+
+  # A failing agent is an error, not a rewrite, however much it printed.
+  SESSION=$(mktemp)
+  jq -n '{text: "Hello world", source: "selftest", address: ""}' >"$SESSION"
+  if out=$(OMAPEN_AGENT_CMD='cat >/dev/null; echo "ERROR: quota"; exit 1' run rewrite 2>/dev/null); then
+    die "selftest: a failing agent was reported as success"
+  fi
+  [[ -z $out ]] || die "selftest: a failing agent still returned text: $out"
+  rm -f "$SESSION"
 
   out=$(focus_lua 0xdead)
   [[ $out == "hl.dsp.focus({ window = 'address:0xdead' })" ]] || die "selftest: focus lua wrong: $out"

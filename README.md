@@ -20,7 +20,10 @@ field, and the rewrite with Replace, Copy and Again](preview.webp)
 ## Requirements
 
 - Omarchy 4 (the Quickshell `omarchy-shell`, plugin schema 1)
-- A default agent: `omarchy default agent claude` (or codex, gemini, opencode, crush, copilot)
+- A default agent: `omarchy default agent claude` (or codex, gemini, opencode,
+  crush, copilot, pi, omp, grok), signed in and working on its own. If the agent
+  cannot answer from a terminal, it cannot answer here either, and the panel
+  will show you what it said.
 - `jq`, `wl-clipboard`, `wtype`, all of which Omarchy already installs
 
 ## Install
