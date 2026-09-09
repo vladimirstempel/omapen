@@ -23,7 +23,7 @@
       "model": "",
       "resultMode": "Show in panel",
       "captureFallback": true,
-      "panelWidth": 480
+      "panelWidth": 540
     },
     "schema": [
       {
@@ -71,7 +71,7 @@
         "min": 320,
         "max": 900,
         "step": 20,
-        "defaultValue": 480,
+        "defaultValue": 540,
         "description": "In the shell's spacing units. Anything wider than the screen is trimmed to fit."
       }
     ]

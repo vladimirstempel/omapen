@@ -37,6 +37,12 @@ Panel {
   // Compose mode: opened with nothing captured, so the panel supplies the text
   // instead of the screen. There is no window behind it to paste into, which
   // is why Replace disappears and Copy is the way out.
+  // The free prompt lives behind the Custom action rather than beside it. Nine
+  // buttons make a square, and a field that is always open reads as the main
+  // way in when it is the one people reach for least.
+  property bool customOpen: false
+  readonly property string customDigit: root.presets.length < 9 ? String(root.presets.length + 1) : ""
+
   readonly property bool manual: root.sourceKind === "manual"
   readonly property string workingText: root.manual ? sourceField.text.trim() : root.sourceText
 
@@ -46,6 +52,7 @@ Panel {
       errorText = ""
       promptField.text = ""
       sourceField.text = ""
+      customOpen = false
       sessionFile.reload()
     } else if (runProc.running) {
       runProc.running = false
@@ -54,6 +61,10 @@ Panel {
 
   function ask(presetId, free) {
     if (root.workingText === "") return
+    // Picking an action off the grid is a choice against the one Custom holds,
+    // so its field goes away with it. Every caller comes through here, the
+    // click and the Alt digit alike.
+    if (!free) root.customOpen = false
     result = ""
     errorText = ""
     pending = free ? "-" : presetId
@@ -75,6 +86,15 @@ Panel {
     } else if (promptField.text !== "") {
       root.ask("", promptField.text)
     }
+  }
+
+  // A second press puts the field away again, so the button reads as the
+  // on/off switch it looks like. Focus follows it either way, or it would be
+  // left sitting on a field that is no longer there.
+  function toggleCustom() {
+    root.customOpen = !root.customOpen
+    if (root.customOpen) promptField.input.forceActiveFocus()
+    else customButton.forceActiveFocus()
   }
 
   function retry() {
@@ -100,7 +120,10 @@ Panel {
       var item = presetRepeater.itemAt(i)
       if (item && item.visible && item.enabled) ring.push(item)
     }
-    ring.push(promptField.input)
+    // Custom sits outside the repeater, so it has to be added by hand or the
+    // ring runs from the last preset straight into the field it opens.
+    if (customButton.visible && customButton.enabled) ring.push(customButton)
+    if (promptField.visible) ring.push(promptField.input)
     if (root.result !== "") {
       if (replaceButton.visible) ring.push(replaceButton)
       ring.push(copyButton, againButton)
@@ -123,9 +146,16 @@ Panel {
   function presetShortcut(event) {
     if (!(event.modifiers & Qt.AltModifier)) return false
     var n = event.key - Qt.Key_1
-    if (n < 0 || n >= root.presets.length || n > 8) return false
-    root.ask(root.presets[n].id, "")
-    return true
+    if (n < 0 || n > 8) return false
+    if (n < root.presets.length) {
+      root.ask(root.presets[n].id, "")
+      return true
+    }
+    if (n === root.presets.length) {
+      root.toggleCustom()
+      return true
+    }
+    return false
   }
 
   function presetLabel(id) {
@@ -239,12 +269,12 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    // The prompt field holds the keyboard: open and type, the way the macOS and
-    // Chrome versions of this work. It stays visible in every state so focus
-    // never has to move, and it owns Esc because the key catcher only sees keys
-    // while nothing else has focus.
-    focusTarget: root.manual ? sourceField.input : promptField.input
-    contentWidth: popup.fittedContentWidth(Style.space(root.setting("panelWidth", 480)))
+    // Compose mode opens on its own field, and capture mode opens on the first
+    // action, which is the one most likely to be run. Fields own Esc, because
+    // the key catcher only sees keys while nothing else has focus.
+    focusTarget: root.manual ? sourceField.input
+      : (presetRepeater.count > 0 ? presetRepeater.itemAt(0) : customButton)
+    contentWidth: popup.fittedContentWidth(Style.space(root.setting("panelWidth", 540)))
     contentHeight: popup.fittedContentHeight(column.implicitHeight)
 
     PanelKeyCatcher {
@@ -318,9 +348,14 @@ Panel {
         // the same click as the mistake, not closing the panel and starting
         // over. Every action runs against the captured text, never against the
         // result of the last one.
-        Flow {
+        // Three to a row, all one width: eight shipped actions plus Custom make
+        // a square, and a square is quicker to aim at than a ragged wrap.
+        Grid {
+          id: actionGrid
           width: parent.width
+          columns: 3
           spacing: Style.space(6)
+          readonly property real cellWidth: (width - spacing * (columns - 1)) / columns
           // Shown from the start in compose mode, disabled until there is
           // something to act on: a panel that grows buttons as you type moves
           // the ones you were aiming for.
@@ -334,22 +369,37 @@ Panel {
               required property var modelData
               required property int index
               bar: root.bar
+              width: actionGrid.cellWidth
               text: modelData.label
               // The digit is what Alt runs, so it is worth more than a glyph
               // sitting next to a label that already says the same thing. Past
               // the ninth there is no shortcut to advertise, so those keep
               // their icon.
-              iconText: index < 9 ? String(index + 1) : (modelData.icon || "")
+              digit: index < 9 ? String(index + 1) : ""
+              iconText: index < 9 ? "" : (modelData.icon || "")
               enabled: !root.busy && root.workingText !== ""
               selected: root.pending === modelData.id && (root.busy || root.result !== "")
               onClicked: root.ask(modelData.id, "")
             }
+          }
+
+          ActionButton {
+            id: customButton
+            bar: root.bar
+            width: actionGrid.cellWidth
+            text: "Custom"
+            digit: root.customDigit
+            iconText: root.customDigit !== "" ? "" : "󰏫"
+            enabled: !root.busy && root.workingText !== ""
+            selected: root.customOpen
+            onClicked: root.toggleCustom()
           }
         }
 
         PromptField {
           id: promptField
           width: parent.width
+          visible: root.customOpen
           enabled: root.workingText !== "" && !root.busy
           placeholderText: root.result === "" ? "Or say what to do with it" : "Ask for another pass"
           bar: root.bar

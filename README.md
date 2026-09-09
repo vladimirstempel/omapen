@@ -6,16 +6,17 @@ Word: the same idea on Omarchy, using the coding agent Omarchy already knows
 about instead of an API key. Text that is not selected anywhere works too: open
 the panel empty and type into it.
 
-Select some text, press `SUPER + SHIFT + H`, pick an action or type your own.
-The result comes back in a panel you can paste, or straight over the selection.
-Keyboard the whole way: open, type, Return to run, Ctrl+Return to paste it back.
+Select some text, press `SUPER + SHIFT + H`, pick an action, or open `Custom`
+and say what you want in your own words. The result comes back in a panel you
+can paste, or straight over the selection. Keyboard the whole way: open,
+`Alt` and the action's digit, `Ctrl+Return` to paste it back.
 
 Nothing selected? `SUPER + CTRL + SHIFT + H` opens the same panel with an empty
 field to type or paste into, for text that is not on the screen yet. That one
 captures nothing, so it works while a terminal is focused too.
 
-![The OmaPen panel: the captured sentence, the eight presets, a free prompt
-field, and the rewrite with Replace, Copy and Again](preview.webp)
+![The OmaPen panel: the captured sentence, nine actions in a three by three
+grid, and the rewrite with Replace, Copy and Again](preview.webp)
 
 ## Requirements
 
@@ -116,8 +117,8 @@ are about to write, and the same actions apply to it. The badge reads
 `YOUR TEXT` so it is never in doubt which one you are in.
 
 The field takes more than one line: Return breaks the line, so a pasted
-paragraph stays a paragraph. Tab moves on to the instruction, and Return there
-runs it.
+paragraph stays a paragraph. Tab moves on to the actions, and Return runs the
+one you land on.
 No keystrokes are sent to any window for this, which is also why it is the one
 that works while a terminal is focused, where capture refuses to press keys.
 
@@ -130,10 +131,10 @@ Nothing here needs a pointer.
 
 | Key | What it does |
 |---|---|
-| `Tab` / `Shift+Tab` | Move through the field, the actions, and the buttons under a result |
+| `Tab` / `Shift+Tab` | Move through the text, the nine actions, the `Custom` prompt while it is open, and the buttons under a result |
 | `←` `→` `↑` `↓`, or `h` `j` `k` `l` | The same ring, once focus has left the text field |
-| `Return` | Run the focused action, or the instruction you typed. Inside the text field it breaks the line |
-| `Alt+1` … `Alt+9` | Run that action from anywhere, mid-sentence included. Each action is labelled with its own digit, so there is nothing to memorise |
+| `Return` | Run the focused action, or the instruction typed into `Custom`. Inside the text you are working on it breaks the line |
+| `Alt+1` … `Alt+9` | Run that action from anywhere, mid-sentence included. Each action is labelled with its own digit, so there is nothing to memorise. The last digit toggles `Custom` |
 | `Ctrl+Return` | Paste the result back over the selection |
 | `Esc` | Close |
 
@@ -209,16 +210,18 @@ omarchy bar set omapen model ""         # back to the small fast default
 | Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. Passed to the agent as its model flag. Empty gives claude `haiku`, which is the right size for a rewrite, and leaves pi and omp on whatever your own provider config already defaults to. |
 | What to do with the result | Show in panel | Or replace the selection: focuses the window the text came from and pastes over it. |
 | Grab the whole field | on | The Ctrl+A Ctrl+C fallback described above. |
-| Panel width | 480 | In the shell's spacing units. |
+| Panel width | 540 | In the shell's spacing units. |
 
 ## Your own actions
 
 The shipped actions live in `prompts.json`. Copy it to
 `~/.config/omapen/prompts.json` and that file wins. Each entry needs an
 `id`, a `label`, an optional Nerd Font `icon`, and the `instruction` the agent
-is given. The first nine show their `Alt` digit in place of the icon, since a
-shortcut you can read beats a glyph next to a label that already says the same
-thing. Anything past the ninth has no shortcut to advertise and keeps its icon.
+is given. They show their `Alt` digit in place of the icon, since a shortcut
+you can read beats a glyph next to a label that already says the same thing.
+`Custom` takes the digit after the last of them, so eight actions leaves it on
+`Alt+9`. Anything past the ninth digit has no shortcut to advertise and keeps
+its icon.
 
 ## How it works
 
