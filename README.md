@@ -7,9 +7,11 @@ about instead of an API key. Text that is not selected anywhere works too: open
 the panel empty and type into it.
 
 Select some text, press `SUPER + SHIFT + H`, pick an action, or open `Custom`
-and say what you want in your own words. The result comes back in a panel you
-can paste, or straight over the selection. Keyboard the whole way: open,
-`Alt` and the action's digit, `Ctrl+Return` to paste it back.
+and say what you want in your own words. What was captured sits in a field you
+can edit first, so a stray half sentence is fixed in place rather than back in
+the document. The result comes back in a panel you can paste, or straight over
+the selection. Keyboard the whole way: open, `Alt` and the action's digit,
+`Ctrl+Return` to paste it back.
 
 Nothing selected? `SUPER + CTRL + SHIFT + H` opens the same panel with an empty
 field to type or paste into, for text that is not on the screen yet. That one
@@ -102,8 +104,10 @@ terminal the panel falls back to the selection and the clipboard. Turn "Read the
 focused window" off to get that behaviour everywhere.
 
 A page with nothing selected has no field to read, so step 2 copies the whole
-page. The preview at the top of the panel is there to catch that before you run
-anything.
+page. The panel puts whatever it got in an editable field at the top, so that
+is caught, and trimmed, before you run anything. Editing it there changes only
+what the agent is given: the window the text came from is remembered either
+way, so `Replace` still knows where to paste.
 
 Wayland has no way to add an item to another application's context menu, so the
 keybinding is the equivalent: it works in every window, including the ones that
@@ -112,9 +116,10 @@ have no menu at all.
 ## Bring your own text
 
 `SUPER + CTRL + SHIFT + H`, or a click on the bar icon, opens the panel with
-nothing captured and the cursor in an empty field. Paste something from your phone, or type the sentence you
-are about to write, and the same actions apply to it. The badge reads
-`YOUR TEXT` so it is never in doubt which one you are in.
+nothing captured and the cursor in the same field, empty. Paste something from
+your phone, or type the sentence you are about to write, and the same actions
+apply to it. The badge reads `YOUR TEXT` so it is never in doubt which one you
+are in.
 
 The field takes more than one line: Return breaks the line, so a pasted
 paragraph stays a paragraph. Tab moves on to the actions, and Return runs the
@@ -231,6 +236,7 @@ agent is in `bin/omapen`, which runs on its own from a terminal:
 ```bash
 bin/omapen capture              # selection -> $XDG_RUNTIME_DIR/omapen/session.json
 bin/omapen compose              # empty session, nothing captured
+bin/omapen edittext "..."       # change the text, keep where it came from
 bin/omapen run shorten          # ask the agent, print the result
 bin/omapen run - "make it rhyme"
 bin/omapen insert               # paste the last result back where it came from

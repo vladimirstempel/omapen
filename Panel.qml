@@ -44,7 +44,7 @@ Panel {
   readonly property string customDigit: root.presets.length < 9 ? String(root.presets.length + 1) : ""
 
   readonly property bool manual: root.sourceKind === "manual"
-  readonly property string workingText: root.manual ? sourceField.text.trim() : root.sourceText
+  readonly property string workingText: sourceField.text.trim()
 
   onOpenedChanged: {
     if (opened) {
@@ -69,14 +69,11 @@ Panel {
     errorText = ""
     pending = free ? "-" : presetId
     runProc.command = free ? [root.cli, "run", "-", free] : [root.cli, "run", presetId]
-    // The agent reads the session file, so typed text has to land there first
-    // rather than travel alongside the run.
-    if (root.manual) {
-      setTextProc.command = [root.cli, "settext", root.workingText]
-      setTextProc.running = true
-    } else {
-      runProc.running = true
-    }
+    // The agent reads the session file, never the popup, so the field has to
+    // land there first. edittext rather than settext: the text may have been
+    // captured, and the window it came from is what Replace pastes to.
+    setTextProc.command = [root.cli, "edittext", root.workingText]
+    setTextProc.running = true
   }
 
   function submit(apply) {
@@ -115,7 +112,7 @@ Panel {
   // the rest of the shell.
   function focusRing() {
     var ring = []
-    if (sourceField.visible) ring.push(sourceField.input)
+    ring.push(sourceField.input)
     for (var i = 0; i < presetRepeater.count; i++) {
       var item = presetRepeater.itemAt(i)
       if (item && item.visible && item.enabled) ring.push(item)
@@ -187,6 +184,7 @@ Panel {
     onLoadFailed: {
       root.sourceText = ""
       root.sourceKind = ""
+      sourceField.text = ""
     }
     onLoaded: {
       try {
@@ -195,7 +193,9 @@ Panel {
         root.sourceKind = session.source || ""
       } catch (e) {
         root.sourceText = ""
+        root.sourceKind = ""
       }
+      sourceField.text = root.sourceText
     }
   }
 
@@ -310,37 +310,13 @@ Panel {
         SourceField {
           id: sourceField
           width: parent.width
-          visible: root.manual
           enabled: !root.busy
           bar: root.bar
           panel: root
         }
 
-        Text {
-          width: parent.width
-          visible: !root.manual && root.sourceText !== ""
-          text: root.sourceText
-          color: Qt.darker(root.bar.foreground, 1.5)
-          font.family: root.bar.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.Wrap
-          maximumLineCount: 3
-          elide: Text.ElideRight
-        }
-
-        Text {
-          width: parent.width
-          visible: !root.manual && root.sourceText === ""
-          text: "Nothing to work on. Select some text, then open this again."
-          color: Qt.darker(root.bar.foreground, 1.5)
-          font.family: root.bar.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.Wrap
-        }
-
         PanelSeparator {
           width: parent.width
-          visible: root.manual || root.sourceText !== ""
         }
 
         // The actions stay put once there is a result: picking the wrong one is
@@ -356,10 +332,6 @@ Panel {
           columns: 3
           spacing: Style.space(6)
           readonly property real cellWidth: (width - spacing * (columns - 1)) / columns
-          // Shown from the start in compose mode, disabled until there is
-          // something to act on: a panel that grows buttons as you type moves
-          // the ones you were aiming for.
-          visible: root.manual || root.sourceText !== ""
 
           Repeater {
             id: presetRepeater

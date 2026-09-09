@@ -174,6 +174,18 @@ settext() {
   jq -n --arg text "$1" '{text: $text, source: "manual", address: ""}' >"$SESSION"
 }
 
+# The panel shows captured text in a field you can edit, so a run has to be
+# able to carry that edit back without the session forgetting where the text
+# came from. settext would stamp it manual and blank the window address, which
+# is the one thing Replace needs.
+edittext() {
+  mkdir -p "$STATE_DIR"
+  [[ -s $SESSION ]] || { settext "$1"; return; }
+  local tmp
+  tmp=$(mktemp)
+  jq --arg text "$1" '.text = $text' "$SESSION" >"$tmp" && mv "$tmp" "$SESSION"
+}
+
 # A model id belongs to the provider it came from: "haiku" means nothing to
 # codex, and gpt-5.6-luna means nothing to gemini. A stale one does not get
 # ignored, it fails the run. So switching agent drops it and the per-agent
@@ -555,6 +567,22 @@ Twice.'
   [[ $(jq -r '.address' "$SESSION") == "" ]] || die "selftest: manual session claims a window"
   rm -f "$SESSION"
 
+  # An edit to captured text must not cost the panel the window it came from:
+  # Replace pastes to .address, and settext would have blanked it.
+  SESSION=$(mktemp)
+  jq -n '{text: "before", source: "selection", address: "0xdeadbeef"}' >"$SESSION"
+  edittext "after"
+  [[ $(jq -r '.text' "$SESSION") == after ]] || die "selftest: edittext did not write the text"
+  [[ $(jq -r '.source' "$SESSION") == selection ]] || die "selftest: edittext forgot where the text came from"
+  [[ $(jq -r '.address' "$SESSION") == 0xdeadbeef ]] || die "selftest: edittext dropped the window address"
+  rm -f "$SESSION"
+  # With nothing captured it has to make a session of its own, or the first run
+  # after a cold start reads an empty file and dies.
+  SESSION=$(mktemp); rm -f "$SESSION"
+  edittext "fresh"
+  [[ $(jq -r '.source' "$SESSION") == manual ]] || die "selftest: edittext did not fall back to a manual session"
+  rm -f "$SESSION"
+
   # Its own session file: a selftest that clobbers the captured text would
   # throw away whatever the user had selected a second ago.
   SESSION=$(mktemp)
@@ -587,11 +615,12 @@ case "${1:-}" in
     omarchy-shell shell toggle omapen '{}' >/dev/null
     ;;
   settext) shift; settext "${1:-}" ;;
+  edittext) shift; edittext "${1:-}" ;;
   run) shift; run "$@" ;;
   insert) shift; insert "$@" ;;
   selftest) selftest ;;
   *)
-    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text> | run <preset|-> [prompt] | insert [-] | selftest" >&2
+    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text> | edittext <text> | run <preset|-> [prompt] | insert [-] | selftest" >&2
     exit 1
     ;;
 esac
