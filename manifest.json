@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omapen",
   "name": "OmaPen",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "stempelv",
   "description": "\"Help me write\" for Omarchy: rewrite whatever you have selected, or whatever you type into the panel, with the coding agent Omarchy already knows about",
   "license": "MIT",
@@ -33,25 +33,18 @@
         "options": [
           "System default",
           "claude",
-          "codex",
-          "gemini",
-          "opencode",
-          "crush",
-          "copilot",
           "pi",
-          "omp",
-          "grok",
-          "agy"
+          "omp"
         ],
         "defaultValue": "System default",
-        "description": "System default follows the agent picked in Setup > Default agent, which is the one already installed and signed in. Naming an agent here uses that one instead, and fails plainly when it is not installed."
+        "description": "System default follows the agent picked in Setup > Default agent, which is the one already installed and signed in. Naming an agent here uses that one instead, and fails plainly when it is not installed. Only claude, pi and omp are accepted: they are the agents whose CLI can be told to run with no tools at all, and text captured off your screen is untrusted."
       },
       {
         "key": "model",
         "type": "string",
         "label": "Model",
         "defaultValue": "",
-        "description": "Passed to the agent as its model flag. Empty picks a small fast model per agent (claude: haiku, codex: gpt-5.6-luna at minimal reasoning, gemini: gemini-3.7-flash), which is the right size for a rewrite. Name a model here to override that."
+        "description": "Passed to the agent as its model flag. Empty gives claude haiku, which is the right size for a rewrite, and leaves pi and omp on whatever your own provider config defaults to. Name a model here to override that."
       },
       {
         "key": "resultMode",
