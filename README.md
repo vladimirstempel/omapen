@@ -167,6 +167,28 @@ this: it keeps a stray `CLAUDE.md` out of your rewrites, and it stops nothing.
 Neither does the prompt, which does tell the agent that the text is material and
 not instructions. Wording is a hint. Taking the tools away is the boundary.
 
+### A free way in, with pi or omp
+
+Neither pi nor omp is tied to a subscription. Both read a provider key out of
+the environment, and Google hands out Gemini API keys for free at
+<https://aistudio.google.com/apikey>, on a tier a rewrite fits inside easily.
+pi already defaults to the `google` provider.
+
+The bar widget runs inside the Wayland session and not in your terminal, so a
+key exported from `~/.bashrc` never reaches it. Put it where the session reads
+it, next to the file Omarchy keeps there itself:
+
+```bash
+mkdir -p ~/.config/environment.d
+echo 'GEMINI_API_KEY=your-key-here' > ~/.config/environment.d/omapen.conf
+chmod 600 ~/.config/environment.d/omapen.conf
+```
+
+Log out and back in for the session to pick it up. `pi auth check --provider
+google` says whether it landed, and `pi --list-models google` names the models
+you can put in the Model setting. Leaving Model empty uses the agent's own
+default, which is what most people want.
+
 ## Settings
 
 Settings live inline on the widget's entry in `~/.config/omarchy/shell.json`.
