@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "./components"
 
 // Bar button plus its popup. The popup is the whole plugin UI: the text that
 // was captured, the rewrite actions, and the result. Everything that touches
@@ -37,14 +38,14 @@ Panel {
   // instead of the screen. There is no window behind it to paste into, which
   // is why Replace disappears and Copy is the way out.
   readonly property bool manual: root.sourceKind === "manual"
-  readonly property string workingText: root.manual ? sourceInput.text.trim() : root.sourceText
+  readonly property string workingText: root.manual ? sourceField.text.trim() : root.sourceText
 
   onOpenedChanged: {
     if (opened) {
       result = ""
       errorText = ""
-      freeInput.text = ""
-      sourceInput.text = ""
+      promptField.text = ""
+      sourceField.text = ""
       sessionFile.reload()
     } else if (runProc.running) {
       runProc.running = false
@@ -71,13 +72,13 @@ Panel {
     if (apply) {
       // Ctrl+Return is "paste it back", which compose mode has no window for.
       if (!root.manual && root.result !== "") root.apply()
-    } else if (freeInput.text !== "") {
-      root.ask("", freeInput.text)
+    } else if (promptField.text !== "") {
+      root.ask("", promptField.text)
     }
   }
 
   function retry() {
-    if (pending === "-") ask("", freeInput.text)
+    if (pending === "-") ask("", promptField.text)
     else ask(pending, "")
   }
 
@@ -94,12 +95,12 @@ Panel {
   // the rest of the shell.
   function focusRing() {
     var ring = []
-    if (sourceInput.visible) ring.push(sourceInput)
+    if (sourceField.visible) ring.push(sourceField.input)
     for (var i = 0; i < presetRepeater.count; i++) {
       var item = presetRepeater.itemAt(i)
       if (item && item.visible && item.enabled) ring.push(item)
     }
-    ring.push(freeInput)
+    ring.push(promptField.input)
     if (root.result !== "") {
       if (replaceButton.visible) ring.push(replaceButton)
       ring.push(copyButton, againButton)
@@ -131,8 +132,6 @@ Panel {
     for (var i = 0; i < presets.length; i++) if (presets[i].id === id) return presets[i].label
     return "Thinking"
   }
-
-  // ------------------------------------------------------------------ data
 
   FileView {
     id: promptsFile
@@ -222,8 +221,6 @@ Panel {
     id: copyProc
   }
 
-  // ------------------------------------------------------------------ bar
-
   BarIconButton {
     id: button
     anchors.fill: parent
@@ -236,8 +233,6 @@ Panel {
     }
   }
 
-  // ---------------------------------------------------------------- popup
-
   KeyboardPanel {
     id: popup
     anchorItem: button
@@ -248,7 +243,7 @@ Panel {
     // Chrome versions of this work. It stays visible in every state so focus
     // never has to move, and it owns Esc because the key catcher only sees keys
     // while nothing else has focus.
-    focusTarget: root.manual ? sourceInput : freeInput
+    focusTarget: root.manual ? sourceField.input : promptField.input
     contentWidth: popup.fittedContentWidth(Style.space(root.setting("panelWidth", 480)))
     contentHeight: popup.fittedContentHeight(column.implicitHeight)
 
@@ -267,7 +262,7 @@ Panel {
       // A focused field owns every key, or j and k would move the cursor
       // instead of being typed. Tab and Escape are handled on the fields
       // themselves for that reason.
-      blocked: sourceInput.activeFocus || freeInput.activeFocus
+      blocked: sourceField.editing || promptField.editing
 
       Column {
         id: column
@@ -276,69 +271,19 @@ Panel {
         anchors.top: parent.top
         spacing: Style.space(10)
 
-        // ---------- title ----------
-        Item {
+        PanelHeading {
           width: parent.width
-          implicitHeight: title.implicitHeight
-
-          Text {
-            id: title
-            text: "OmaPen"
-            color: root.bar.foreground
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.title
-            font.bold: true
-            anchors.left: parent.left
-          }
-
-          Text {
-            text: root.sourceKind === "selection" ? "SELECTION"
-                : root.sourceKind === "clipboard" ? "CLIPBOARD"
-                : root.sourceKind === "field" ? "WHOLE FIELD"
-                : root.sourceKind === "manual" ? "YOUR TEXT" : ""
-            color: Qt.darker(root.bar.foreground, 1.6)
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.caption
-            font.letterSpacing: 1.2
-            anchors.right: parent.right
-            anchors.verticalCenter: title.verticalCenter
-          }
+          bar: root.bar
+          sourceKind: root.sourceKind
         }
 
-        // ---------- what we are working on ----------
-        // ponytail: single-line field, the kit ships no multi-line input. Fine
-        // for a sentence or a paragraph; swap in a styled TextArea if people
-        // start pasting whole documents in here.
-        TextField {
-          id: sourceInput
+        SourceField {
+          id: sourceField
           width: parent.width
           visible: root.manual
           enabled: !root.busy
-          placeholderText: "Paste or type the text to work on"
-          foreground: root.bar.foreground
-          font.family: root.bar.fontFamily
-          font.pixelSize: Style.font.body
-          // The key catcher is blocked while this field has focus, so the keys
-          // that leave it are handled here.
-          Keys.onTabPressed: function (event) { event.accepted = true; root.moveFocus(1) }
-          Keys.onBacktabPressed: function (event) { event.accepted = true; root.moveFocus(-1) }
-          Keys.onPressed: function (event) { if (root.presetShortcut(event)) event.accepted = true }
-          // Return moves on to the instruction rather than doing nothing: type
-          // the text, Return, say what to do with it, Return. Swallowing it is
-          // required either way, since an unaccepted Return reaches the key
-          // catcher, which reads it as "activate" and closes the panel.
-          Keys.onReturnPressed: function (event) {
-            event.accepted = true
-            freeInput.forceActiveFocus()
-          }
-          Keys.onEnterPressed: function (event) {
-            event.accepted = true
-            freeInput.forceActiveFocus()
-          }
-          Keys.onEscapePressed: function (event) {
-            event.accepted = true
-            root.close()
-          }
+          bar: root.bar
+          panel: root
         }
 
         Text {
@@ -368,7 +313,6 @@ Panel {
           visible: root.manual || root.sourceText !== ""
         }
 
-        // ---------- actions ----------
         // The actions stay put once there is a result: picking the wrong one is
         // the most likely thing to happen here, and the fix for it should be
         // the same click as the mistake, not closing the panel and starting
@@ -386,72 +330,32 @@ Panel {
             id: presetRepeater
             model: root.presets
 
-            Button {
+            ActionButton {
               required property var modelData
               required property int index
+              bar: root.bar
               text: modelData.label
               // The digit is what Alt runs, so it is worth more than a glyph
-              // sitting next to a label that already says the same thing.
-              // Past the ninth there is no shortcut to advertise, so those
-              // keep their icon.
+              // sitting next to a label that already says the same thing. Past
+              // the ninth there is no shortcut to advertise, so those keep
+              // their icon.
               iconText: index < 9 ? String(index + 1) : (modelData.icon || "")
-              foreground: root.bar.foreground
-              fontFamily: root.bar.fontFamily
-              bordered: true
-              focusable: true
               enabled: !root.busy && root.workingText !== ""
               selected: root.pending === modelData.id && (root.busy || root.result !== "")
               onClicked: root.ask(modelData.id, "")
-
-              // The kit draws its focus ring in the foreground colour, which on a
-              // panel of bordered buttons is nearly invisible. Keyboard users
-              // need to see where they are at a glance, so the ring is redrawn
-              // in the theme accent.
-              Rectangle {
-                anchors.fill: parent
-                visible: parent.activeFocus
-                color: "transparent"
-                radius: Style.cornerRadius
-                border.width: 2
-                border.color: Color.accent
-              }
             }
           }
         }
 
-        TextField {
-          id: freeInput
+        PromptField {
+          id: promptField
           width: parent.width
           enabled: root.workingText !== "" && !root.busy
           placeholderText: root.result === "" ? "Or say what to do with it" : "Ask for another pass"
-          foreground: root.bar.foreground
-          font.family: root.bar.fontFamily
-          font.pixelSize: Style.font.body
-          // The key catcher is blocked while this field has focus, so the keys
-          // that leave it are handled here.
-          Keys.onTabPressed: function (event) { event.accepted = true; root.moveFocus(1) }
-          Keys.onBacktabPressed: function (event) { event.accepted = true; root.moveFocus(-1) }
-          Keys.onPressed: function (event) { if (root.presetShortcut(event)) event.accepted = true }
-          // Return has to be swallowed here. Unaccepted it bubbles up to the
-          // key catcher, which reads it as "activate" and closes the panel out
-          // from under the run that just started.
-          // Ctrl+Return applies the result, so the whole thing is reachable
-          // from the keyboard: open, type, Return, Ctrl+Return.
-          Keys.onReturnPressed: function (event) {
-            event.accepted = true
-            root.submit(event.modifiers & Qt.ControlModifier)
-          }
-          Keys.onEnterPressed: function (event) {
-            event.accepted = true
-            root.submit(event.modifiers & Qt.ControlModifier)
-          }
-          Keys.onEscapePressed: function (event) {
-            event.accepted = true
-            root.close()
-          }
+          bar: root.bar
+          panel: root
         }
 
-        // ---------- thinking ----------
         Text {
           width: parent.width
           visible: root.busy
@@ -468,24 +372,11 @@ Panel {
           }
         }
 
-        // ---------- result ----------
-        Flickable {
+        ResultView {
           width: parent.width
           visible: root.result !== ""
-          implicitHeight: Math.min(resultText.implicitHeight, Style.space(260))
-          contentHeight: resultText.implicitHeight
-          clip: true
-          boundsBehavior: Flickable.StopAtBounds
-
-          Text {
-            id: resultText
-            width: parent.width
-            text: root.result
-            color: root.bar.foreground
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.body
-            wrapMode: Text.Wrap
-          }
+          bar: root.bar
+          body: root.result
         }
 
         Text {
@@ -502,83 +393,35 @@ Panel {
           spacing: Style.space(6)
           visible: root.result !== ""
 
-          Button {
+          ActionButton {
             id: replaceButton
+            bar: root.bar
             text: "Replace"
             iconText: "󰆐"
             // Compose mode never recorded a window, so there is nowhere to
             // paste back to and Copy is the only sensible exit.
             visible: !root.manual
-            foreground: root.bar.foreground
-            fontFamily: root.bar.fontFamily
-            bordered: true
-            focusable: true
             onClicked: root.apply()
-
-            // The kit draws its focus ring in the foreground colour, which on a
-            // panel of bordered buttons is nearly invisible. Keyboard users
-            // need to see where they are at a glance, so the ring is redrawn
-            // in the theme accent.
-            Rectangle {
-              anchors.fill: parent
-              visible: parent.activeFocus
-              color: "transparent"
-              radius: Style.cornerRadius
-              border.width: 2
-              border.color: Color.accent
-            }
           }
 
-          Button {
+          ActionButton {
             id: copyButton
+            bar: root.bar
             text: "Copy"
             iconText: "󰆏"
-            foreground: root.bar.foreground
-            fontFamily: root.bar.fontFamily
-            bordered: true
-            focusable: true
             onClicked: {
               copyProc.command = ["wl-copy", "--", root.result]
               copyProc.running = true
               root.close()
             }
-
-            // The kit draws its focus ring in the foreground colour, which on a
-            // panel of bordered buttons is nearly invisible. Keyboard users
-            // need to see where they are at a glance, so the ring is redrawn
-            // in the theme accent.
-            Rectangle {
-              anchors.fill: parent
-              visible: parent.activeFocus
-              color: "transparent"
-              radius: Style.cornerRadius
-              border.width: 2
-              border.color: Color.accent
-            }
           }
 
-          Button {
+          ActionButton {
             id: againButton
+            bar: root.bar
             text: "Again"
             iconText: "󰑖"
-            foreground: root.bar.foreground
-            fontFamily: root.bar.fontFamily
-            bordered: true
-            focusable: true
             onClicked: root.retry()
-
-            // The kit draws its focus ring in the foreground colour, which on a
-            // panel of bordered buttons is nearly invisible. Keyboard users
-            // need to see where they are at a glance, so the ring is redrawn
-            // in the theme accent.
-            Rectangle {
-              anchors.fill: parent
-              visible: parent.activeFocus
-              color: "transparent"
-              radius: Style.cornerRadius
-              border.width: 2
-              border.color: Color.accent
-            }
           }
         }
       }

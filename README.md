@@ -115,7 +115,9 @@ nothing captured and the cursor in an empty field. Paste something from your pho
 are about to write, and the same actions apply to it. The badge reads
 `YOUR TEXT` so it is never in doubt which one you are in.
 
-Type the text, press Return to move to the instruction, Return again to run.
+The field takes more than one line: Return breaks the line, so a pasted
+paragraph stays a paragraph. Tab moves on to the instruction, and Return there
+runs it.
 No keystrokes are sent to any window for this, which is also why it is the one
 that works while a terminal is focused, where capture refuses to press keys.
 
@@ -130,7 +132,7 @@ Nothing here needs a pointer.
 |---|---|
 | `Tab` / `Shift+Tab` | Move through the field, the actions, and the buttons under a result |
 | `←` `→` `↑` `↓`, or `h` `j` `k` `l` | The same ring, once focus has left the text field |
-| `Return` | Run the focused action, or the instruction you typed |
+| `Return` | Run the focused action, or the instruction you typed. Inside the text field it breaks the line |
 | `Alt+1` … `Alt+9` | Run that action from anywhere, mid-sentence included. Each action is labelled with its own digit, so there is nothing to memorise |
 | `Ctrl+Return` | Paste the result back over the selection |
 | `Esc` | Close |
