@@ -62,8 +62,8 @@ press() {
 
 # --------------------------------------------------------------- capture
 
-# Ctrl+C in a terminal is SIGINT, not copy, and Ctrl+A moves the cursor. Never
-# press keys into one: read the selection it publishes and leave it alone.
+# Ctrl+C in a terminal is SIGINT, not copy. Never press keys into one: read the
+# selection it publishes and leave it alone.
 is_terminal() {
   case "${1,,}" in
     kitty | foot | footclient | alacritty | xterm | st | konsole | terminator | \
@@ -92,16 +92,22 @@ press_until_copied() {
   done
 }
 
-# What counts as "the text I am looking at", in order:
+# "The text I am looking at" is asked one of two ways, and never both:
 #
-#   1. What the focused window copies on Ctrl+C right now. This is the only way
-#      to tell a live selection from the one PRIMARY has been holding since some
-#      other window an hour ago, and that stale selection is exactly what makes
-#      the panel open showing yesterday's sentence.
-#   2. The whole focused field, via Ctrl+A Ctrl+C.
-#   3. PRIMARY, for the windows that are off limits to keystrokes.
-#   4. The clipboard, last, because it holds whatever you copied at some point
-#      today and reaching for it earlier is how the wrong text gets rewritten.
+#   1. What the focused window copies on Ctrl+C right now. Where the keys can
+#      be sent this is the whole answer, not a first try: a window that copies
+#      nothing has nothing selected, and falling through to PRIMARY from here
+#      is how the panel opened on some other window's sentence from an hour
+#      ago.
+#   2. PRIMARY, only where they cannot: a terminal, or the setting turned off.
+#      It holds the last selection made anywhere, so it is a last resort rather
+#      than a fallback.
+#
+# Nothing selected is not a puzzle to solve, it is an answer: the panel opens
+# empty and you type into it. Selecting the whole field on the user's behalf
+# put a page into a rewrite when a sentence was meant, and the clipboard holds
+# whatever was copied at some point today. Neither is a guess worth making, and
+# text already on the clipboard is a paste the user can make themselves.
 capture() {
   mkdir -p "$STATE_DIR"
   local active address class text source saved
@@ -128,29 +134,16 @@ capture() {
     # have that same sentence on the clipboard already.
     wl-copy --clear 2>/dev/null
     text=$(press_until_copied)
-    [[ -n $text ]] && source="selection"
-
-    if [[ -z $text ]]; then
-      # Ctrl+A also leaves the field selected, which is what makes the result
-      # land on top of it rather than beside it. Only reachable once the copy
-      # loop above has given up, so a live selection never gets here.
-      press a
-      press c
-      sleep 0.25
-      text=$(wl-paste --no-newline 2>/dev/null)
-      [[ -n $text ]] && source="field"
-    fi
-
-  fi
-
-  if [[ -z $text ]]; then
+  else
     text=$(wl-paste --primary --no-newline 2>/dev/null)
-    [[ -n $text ]] && source="selection"
   fi
+  [[ -n $text ]] && source="selection"
 
+  # The same empty session compose writes, so the panel opens on a field to
+  # type into and Replace stays off it: there is no selection to paste over.
   if [[ -z $text ]]; then
-    text="$saved"
-    source="clipboard"
+    settext ""
+    return 0
   fi
 
   jq -n --arg text "$text" --arg source "$source" --arg address "$address" \

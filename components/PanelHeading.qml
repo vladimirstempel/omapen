@@ -9,8 +9,6 @@ Item {
 
   readonly property string badge: ({
     selection: "SELECTION",
-    clipboard: "CLIPBOARD",
-    field: "WHOLE FIELD",
     manual: "YOUR TEXT"
   })[root.sourceKind] || ""
 

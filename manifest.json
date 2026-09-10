@@ -62,7 +62,7 @@
         "type": "boolean",
         "label": "Read the focused window",
         "defaultValue": true,
-        "description": "Asks the window in front of you what it has, by sending it Ctrl+C and, when nothing is selected there, Ctrl+A Ctrl+C for the whole field. This is what keeps the panel on the sentence you are looking at rather than on a selection left over from an hour ago. Off falls back to the last selection and the clipboard, which is the safer setting if you do not want keystrokes sent anywhere. Terminals are never sent keys either way, since Ctrl+C there means stop, not copy."
+        "description": "Asks the window in front of you for its selection by sending it Ctrl+C. This catches a selection made with the keyboard, which some apps do not publish any other way. Off reads only the selection the window publishes on its own, which is the safer setting if you do not want keystrokes sent anywhere, and costs you nothing when you select with the mouse. Terminals are never sent keys either way, since Ctrl+C there means stop, not copy. Either way, nothing selected opens the panel empty rather than reaching for the clipboard."
       },
       {
         "key": "panelWidth",

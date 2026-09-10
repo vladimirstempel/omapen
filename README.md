@@ -93,22 +93,32 @@ Nothing else is left behind: the session file and the last result live in
 
 ## Where the text comes from
 
-1. Whatever the focused window copies on Ctrl+C right now. This is the live
-   selection, and asking the window beats reading the primary selection, which
-   holds on to whatever you last selected anywhere, however long ago.
-2. The whole focused field, via Ctrl+A Ctrl+C, when nothing is selected there.
-3. The primary selection, for windows that are off limits to keystrokes.
-4. The clipboard, last of all.
+The question is asked one of two ways, and never both:
+
+1. **Ctrl+C into the focused window.** Where the keys can be sent, this is the
+   whole answer rather than a first try: a window that copies nothing has
+   nothing selected.
+2. **The primary selection,** only where they cannot, which means a terminal or
+   the setting turned off. Text highlighted with the mouse lands there on its
+   own with no keystroke sent anywhere, which is why terminals work at all. It
+   also holds on to whatever you last selected anywhere, however long ago,
+   which is why it is a last resort and not a fallback from step 1.
+
+Nothing selected is an answer rather than a puzzle: the panel opens empty and
+you type into it, the way it does for `SUPER + CTRL + SHIFT + H`. It never
+selects the whole field for you, and it never reaches for the clipboard. Text
+you copied yourself is a `Ctrl+V` away if you want it.
 
 Terminals never get keystrokes: Ctrl+C there stops the running command. In a
-terminal the panel falls back to the selection and the clipboard. Turn "Read the
-focused window" off to get that behaviour everywhere.
+terminal the panel reads the primary selection instead. Turn "Read the focused
+window" off to get that behaviour everywhere, at the cost of selections made
+with the keyboard in apps that publish only mouse ones.
 
-A page with nothing selected has no field to read, so step 2 copies the whole
-page. The panel puts whatever it got in an editable field at the top, so that
-is caught, and trimmed, before you run anything. Editing it there changes only
-what the agent is given: the window the text came from is remembered either
-way, so `Replace` still knows where to paste.
+Whatever it got goes into an editable field at the top of the panel, so a
+selection that came out with a stray half sentence is trimmed there rather than
+back in the document. Editing it changes only what the agent is given: the
+window the text came from is remembered either way, so `Replace` still knows
+where to paste.
 
 Wayland has no way to add an item to another application's context menu, so the
 keybinding is the equivalent: it works in every window, including the ones that
@@ -215,7 +225,7 @@ omarchy bar set omapen model ""         # back to the small fast default
 | Agent | System default | Follows `omarchy default agent`, or names one to use instead. Only claude, pi and omp are accepted. |
 | Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. Passed to the agent as its model flag. Empty gives claude `haiku`, which is the right size for a rewrite, and leaves pi and omp on whatever your own provider config already defaults to. |
 | What to do with the result | Show in panel | Or replace the selection: focuses the window the text came from and pastes over it. |
-| Grab the whole field | on | The Ctrl+A Ctrl+C fallback described above. |
+| Read the focused window | on | Sends the window a Ctrl+C, which is what catches a selection made with the keyboard. Off reads only what the window publishes on its own. |
 | Panel width | 540 | In the shell's spacing units. |
 
 ## Your own actions
