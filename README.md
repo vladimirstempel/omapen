@@ -95,24 +95,25 @@ Nothing else is left behind: the session file and the last result live in
 
 The question is asked one of two ways, and never both:
 
-1. **Ctrl+C into the focused window.** Where the keys can be sent, this is the
-   whole answer rather than a first try: a window that copies nothing has
-   nothing selected.
-2. **The primary selection,** only where they cannot, which means a terminal or
-   the setting turned off. Text highlighted with the mouse lands there on its
-   own with no keystroke sent anywhere, which is why terminals work at all. It
-   also holds on to whatever you last selected anywhere, however long ago,
-   which is why it is a last resort and not a fallback from step 1.
+1. **Asking the window to copy,** with Ctrl+C, or Ctrl+Shift+C when it is a
+   terminal. Where the keys can be sent this is the whole answer rather than a
+   first try: a window that copies nothing has nothing selected.
+2. **The primary selection,** only where they cannot, which means the setting
+   below turned off. It holds on to whatever you last selected anywhere,
+   however long ago, which is why it is a last resort and not a fallback from
+   step 1.
 
 Nothing selected is an answer rather than a puzzle: the panel opens empty and
 you type into it, the way it does for `SUPER + CTRL + SHIFT + H`. It never
 selects the whole field for you, and it never reaches for the clipboard. Text
 you copied yourself is a `Ctrl+V` away if you want it.
 
-Terminals never get keystrokes: Ctrl+C there stops the running command. In a
-terminal the panel reads the primary selection instead. Turn "Read the focused
-window" off to get that behaviour everywhere, at the cost of selections made
-with the keyboard in apps that publish only mouse ones.
+Terminals take the same keys under one more modifier: Ctrl+Shift+C to copy,
+Ctrl+Shift+V to paste, because the plain versions there mean stop and
+literal-next. That is the only reason they were ever a special case. Turn
+"Read the focused window" off to stop the panel sending keys anywhere, at the
+cost of falling back to the primary selection, which is whatever you last
+highlighted rather than what is in front of you.
 
 Whatever it got goes into an editable field at the top of the panel, so a
 selection that came out with a stray half sentence is trimmed there rather than
@@ -225,7 +226,7 @@ omarchy bar set omapen model ""         # back to the small fast default
 | Agent | System default | Follows `omarchy default agent`, or names one to use instead. Only claude, pi and omp are accepted. |
 | Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. Passed to the agent as its model flag. Empty gives claude `haiku`, which is the right size for a rewrite, and leaves pi and omp on whatever your own provider config already defaults to. |
 | What to do with the result | Show in panel | Or replace the selection: focuses the window the text came from and pastes over it. |
-| Read the focused window | on | Sends the window a Ctrl+C, which is what catches a selection made with the keyboard. Off reads only what the window publishes on its own. |
+| Read the focused window | on | Asks the window to copy, with Ctrl+C or Ctrl+Shift+C in a terminal. Off reads the primary selection instead, which is the last thing highlighted anywhere rather than the selection in front of you. |
 | Panel width | 540 | In the shell's spacing units. |
 
 ## Your own actions

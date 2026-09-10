@@ -54,16 +54,26 @@ hypr_focus() {
 # that arrives before the compositor has settled loses its modifier: Ctrl+A
 # turns into a typed "a", which lands in the user's document. The pause after
 # each press is what keeps that from happening, so do not trim it.
+# Ctrl+C is copy nearly everywhere, and SIGINT in a terminal, where copy is
+# Ctrl+Shift+C. Same key, one more modifier, so the caller says which.
 press() {
   command -v wtype >/dev/null || die "wtype is not installed"
-  wtype -M ctrl -k "$1" -m ctrl
+  if [[ ${2:-} == shift ]]; then
+    wtype -M ctrl -M shift -k "$1" -m shift -m ctrl
+  else
+    wtype -M ctrl -k "$1" -m ctrl
+  fi
   sleep 0.15
 }
 
 # --------------------------------------------------------------- capture
 
-# Ctrl+C in a terminal is SIGINT, not copy. Never press keys into one: read the
-# selection it publishes and leave it alone.
+# Terminals take the same keys under one more modifier: Ctrl+Shift+C to copy,
+# Ctrl+Shift+V to paste. They used to be refused keystrokes altogether, which
+# is a wider rule than the reason behind it, and it left PRIMARY as the only
+# way to read them. PRIMARY holds the last selection made anywhere rather than
+# the one in front of you, so a terminal with nothing selected came back with
+# somebody else's paragraph.
 is_terminal() {
   case "${1,,}" in
     kitty | foot | footclient | alacritty | xterm | st | konsole | terminator | \
@@ -80,11 +90,11 @@ is_terminal() {
 # page. So press until the clipboard fills or the budget runs out: the first
 # press after the user's fingers leave the keybinding is the one that lands.
 press_until_copied() {
-  local budget_ms="${1:-900}" deadline now text
+  local mod="${1:-}" budget_ms="${2:-900}" deadline now text
   now() { printf '%s' $(( $(date +%s%N) / 1000000 )); }
   deadline=$(( $(now) + budget_ms ))
   while :; do
-    press c
+    press c "$mod"
     sleep 0.1
     text=$(wl-paste --no-newline 2>/dev/null)
     [[ -n $text ]] && { printf '%s' "$text"; return 0; }
@@ -94,14 +104,14 @@ press_until_copied() {
 
 # "The text I am looking at" is asked one of two ways, and never both:
 #
-#   1. What the focused window copies on Ctrl+C right now. Where the keys can
-#      be sent this is the whole answer, not a first try: a window that copies
-#      nothing has nothing selected, and falling through to PRIMARY from here
-#      is how the panel opened on some other window's sentence from an hour
-#      ago.
-#   2. PRIMARY, only where they cannot: a terminal, or the setting turned off.
-#      It holds the last selection made anywhere, so it is a last resort rather
-#      than a fallback.
+#   1. What the focused window copies when asked, on Ctrl+C or, in a terminal,
+#      Ctrl+Shift+C. Where the keys can be sent this is the whole answer, not a
+#      first try: a window that copies nothing has nothing selected, and
+#      falling through to PRIMARY from here is how the panel opened on some
+#      other window's sentence from an hour ago.
+#   2. PRIMARY, only where they cannot: the setting turned off, or no window
+#      focused at all. It holds the last selection made anywhere, so it is a
+#      last resort rather than a fallback.
 #
 # Nothing selected is not a puzzle to solve, it is an answer: the panel opens
 # empty and you type into it. Selecting the whole field on the user's behalf
@@ -127,13 +137,17 @@ capture() {
   text=""
   source=""
 
-  if [[ -n $address ]] && ! is_terminal "$class" && [[ $(setting captureFallback true) == "true" ]]; then
+  if [[ -n $address ]] && [[ $(setting captureFallback true) == "true" ]]; then
     # Clearing first turns "did anything get copied" into a question the
     # clipboard can answer by itself. Comparing against the previous contents
     # instead called a real copy "nothing selected" whenever you happened to
     # have that same sentence on the clipboard already.
     wl-copy --clear 2>/dev/null
-    text=$(press_until_copied)
+    if is_terminal "$class"; then
+      text=$(press_until_copied shift)
+    else
+      text=$(press_until_copied)
+    fi
   else
     text=$(wl-paste --primary --no-newline 2>/dev/null)
   fi
@@ -400,7 +414,7 @@ run() {
 # first: the panel took focus when it opened, and a client that is not focused
 # is not allowed to read the clipboard, so the paste would arrive empty.
 insert() {
-  local text address saved
+  local text address saved class
   # Only `insert -` reads stdin. Reading it by default hangs the moment the
   # caller is a process that leaves its own stdin open, which the shell does.
   if [[ ${1:-} == "-" ]]; then text=$(cat); else text=$(cat "$RESULT" 2>/dev/null); fi
@@ -412,7 +426,10 @@ insert() {
   printf '%s' "$text" | wl-copy
   hypr_focus "$address"
   sleep 0.25
-  press v
+  # The window the text came from decides which paste this is: Ctrl+V into a
+  # terminal is not paste at all, it is the literal-next escape.
+  class=$(hyprctl clients -j 2>/dev/null | jq -r --arg a "$address" '.[] | select(.address == $a) | .class')
+  if is_terminal "$class"; then press v shift; else press v; fi
 
   # ponytail: fixed wait before handing the clipboard back, because the paste is
   # the receiving app's asynchronous read and there is no event to wait on. If a
