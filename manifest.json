@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omapen",
   "name": "OmaPen",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "stempelv",
   "description": "\"Help me write\" for Omarchy: rewrite whatever you have selected, or whatever you type into the panel, with the coding agent Omarchy already knows about",
   "license": "MIT",
@@ -62,7 +62,7 @@
         "type": "boolean",
         "label": "Read the focused window",
         "defaultValue": true,
-        "description": "Asks the window in front of you what it has, by sending it Ctrl+C and, when nothing is selected there, Ctrl+A Ctrl+C for the whole field. This is what keeps the panel on the sentence you are looking at rather than on a selection left over from an hour ago. Off falls back to the last selection and the clipboard, which is the safer setting if you do not want keystrokes sent anywhere. Terminals are never sent keys either way, since Ctrl+C there means stop, not copy."
+        "description": "Asks the window in front of you for its selection by sending it Ctrl+C. This is what keeps the panel on the sentence you are looking at, and what lets it tell an empty selection apart from an old one. Off sends no keys anywhere and reads the primary selection instead, which is whatever you last highlighted, however long ago and in whatever window. Terminals are skipped either way and open the panel empty: a synthetic copy lands in the prompt as text rather than copying anything, and the primary selection there is somebody else's paragraph. Nothing selected opens the panel empty too, rather than reaching for the clipboard."
       },
       {
         "key": "panelWidth",

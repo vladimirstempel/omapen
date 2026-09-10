@@ -13,9 +13,10 @@ the document. The result comes back in a panel you can paste, or straight over
 the selection. Keyboard the whole way: open, `Alt` and the action's digit,
 `Ctrl+Return` to paste it back.
 
-Nothing selected? `SUPER + CTRL + SHIFT + H` opens the same panel with an empty
-field to type or paste into, for text that is not on the screen yet. That one
-captures nothing, so it works while a terminal is focused too.
+Nothing selected opens the same panel empty, to type or paste into, for text
+that is not on the screen yet. `SUPER + CTRL + SHIFT + H` opens it that way on
+purpose, even when something is selected, and sends no keystroke to any window
+to do it.
 
 ![The OmaPen panel over the text it captured: that text in an editable field,
 nine actions in a three by three grid, and the fixed sentence with Replace,
@@ -93,22 +94,46 @@ Nothing else is left behind: the session file and the last result live in
 
 ## Where the text comes from
 
-1. Whatever the focused window copies on Ctrl+C right now. This is the live
-   selection, and asking the window beats reading the primary selection, which
-   holds on to whatever you last selected anywhere, however long ago.
-2. The whole focused field, via Ctrl+A Ctrl+C, when nothing is selected there.
-3. The primary selection, for windows that are off limits to keystrokes.
-4. The clipboard, last of all.
+The question is asked one of two ways, and never both:
 
-Terminals never get keystrokes: Ctrl+C there stops the running command. In a
-terminal the panel falls back to the selection and the clipboard. Turn "Read the
-focused window" off to get that behaviour everywhere.
+1. **Ctrl+C into the focused window.** Where the keys can be sent this is the
+   whole answer rather than a first try: a window that copies nothing has
+   nothing selected.
+2. **The primary selection,** only where they cannot, which means the setting
+   below turned off, or no focused window. It holds on to whatever you last
+   selected anywhere, however long ago, which is why it is a last resort and
+   not a fallback from step 1.
 
-A page with nothing selected has no field to read, so step 2 copies the whole
-page. The panel puts whatever it got in an editable field at the top, so that
-is caught, and trimmed, before you run anything. Editing it there changes only
-what the agent is given: the window the text came from is remembered either
-way, so `Replace` still knows where to paste.
+A terminal gets neither. The panel opens empty over one, the same as it does
+when nothing is selected anywhere.
+
+Nothing selected is an answer rather than a puzzle: the panel opens empty and
+you type into it, the way it does for `SUPER + CTRL + SHIFT + H`. It never
+selects the whole field for you, and it never reaches for the clipboard. Text
+you copied yourself is a `Ctrl+V` away if you want it.
+
+Only text counts. An image on the clipboard is not a sentence, so capture will
+not read one as if it were, and it hands whatever was there back byte for byte
+when it is done.
+
+A terminal is left alone completely: no keystroke, no read, and the clipboard
+is not touched on its account either. Ctrl+C there is stop rather than copy,
+and asking with Ctrl+Shift+C instead does not help, because Hyprland fires the
+keybinding while Super and Shift are still held, so the chord arrives as
+Super+Ctrl+Shift+C, which no terminal treats as copy and kitty hands to the
+shell as text you then have to delete. Reading the primary selection instead
+was no better: it is the last thing highlighted anywhere, so a terminal with
+nothing selected came back holding another window's paragraph. An empty panel
+is the honest answer, and pasting into it is one keystroke.
+
+Turn "Read the focused window" off to stop the panel asking any window for
+anything, at the cost of falling back to the primary selection everywhere.
+
+Whatever it got goes into an editable field at the top of the panel, so a
+selection that came out with a stray half sentence is trimmed there rather than
+back in the document. Editing it changes only what the agent is given: the
+window the text came from is remembered either way, so `Replace` still knows
+where to paste.
 
 Wayland has no way to add an item to another application's context menu, so the
 keybinding is the equivalent: it works in every window, including the ones that
@@ -122,11 +147,14 @@ your phone, or type the sentence you are about to write, and the same actions
 apply to it. The badge reads `YOUR TEXT` so it is never in doubt which one you
 are in.
 
+`SUPER + SHIFT + H` lands here too whenever nothing is selected. The difference
+is that this one gets you here on purpose: it ignores a selection you have left
+lying around rather than rewriting it, and it asks no window for anything.
+
 The field takes more than one line: Return breaks the line, so a pasted
 paragraph stays a paragraph. Tab moves on to the actions, and Return runs the
 one you land on.
-No keystrokes are sent to any window for this, which is also why it is the one
-that works while a terminal is focused, where capture refuses to press keys.
+No keystrokes are sent to any window for this.
 
 There is no window behind it to paste back into, so `Replace` is not offered
 here and `Copy` is the way out.
@@ -215,7 +243,7 @@ omarchy bar set omapen model ""         # back to the small fast default
 | Agent | System default | Follows `omarchy default agent`, or names one to use instead. Only claude, pi and omp are accepted. |
 | Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. Passed to the agent as its model flag. Empty gives claude `haiku`, which is the right size for a rewrite, and leaves pi and omp on whatever your own provider config already defaults to. |
 | What to do with the result | Show in panel | Or replace the selection: focuses the window the text came from and pastes over it. |
-| Grab the whole field | on | The Ctrl+A Ctrl+C fallback described above. |
+| Read the focused window | on | Sends the window a Ctrl+C, which is what tells an empty selection apart from an old one. Off reads the primary selection instead, which is the last thing highlighted anywhere rather than the selection in front of you. |
 | Panel width | 540 | In the shell's spacing units. |
 
 ## Your own actions

@@ -62,8 +62,21 @@ press() {
 
 # --------------------------------------------------------------- capture
 
-# Ctrl+C in a terminal is SIGINT, not copy, and Ctrl+A moves the cursor. Never
-# press keys into one: read the selection it publishes and leave it alone.
+# Capture skips terminals entirely, and this is what tells it which windows
+# those are.
+#
+# Asking one to copy is out: Ctrl+C there is stop, and Ctrl+Shift+C does not
+# save it, because Hyprland fires the keybinding while Super+Shift are still
+# physically down and the chord lands as Super+Ctrl+Shift+C. kitty does not
+# recognise that, forwards it to the shell as a CSI-u sequence, and the shell
+# types the printable tail into whatever the user was writing. Every other
+# window drops an unhandled chord in silence, which is why press_until_copied
+# can afford to retry until the user's fingers leave. A terminal cannot: each
+# miss is a line of rubbish in a prompt they may then press Enter on.
+#
+# Reading PRIMARY instead is out too: it holds the last selection made
+# anywhere, so a terminal with nothing selected came back holding some other
+# window's paragraph.
 is_terminal() {
   case "${1,,}" in
     kitty | foot | footclient | alacritty | xterm | st | konsole | terminator | \
@@ -86,25 +99,39 @@ press_until_copied() {
   while :; do
     press c
     sleep 0.1
-    text=$(wl-paste --no-newline 2>/dev/null)
-    [[ -n $text ]] && { printf '%s' "$text"; return 0; }
+    # Only text is a selection worth rewriting. Whatever else sits on the
+    # clipboard is somebody's image, and reading it as a sentence is how binary
+    # rubbish reached the panel.
+    if wl-paste --list-types 2>/dev/null | grep -qi '^text/'; then
+      text=$(wl-paste --no-newline 2>/dev/null)
+      [[ -n $text ]] && { printf '%s' "$text"; return 0; }
+    fi
     (( $(now) >= deadline )) && return 1
   done
 }
 
-# What counts as "the text I am looking at", in order:
+# "The text I am looking at" is asked one of two ways, and never both:
 #
-#   1. What the focused window copies on Ctrl+C right now. This is the only way
-#      to tell a live selection from the one PRIMARY has been holding since some
-#      other window an hour ago, and that stale selection is exactly what makes
-#      the panel open showing yesterday's sentence.
-#   2. The whole focused field, via Ctrl+A Ctrl+C.
-#   3. PRIMARY, for the windows that are off limits to keystrokes.
-#   4. The clipboard, last, because it holds whatever you copied at some point
-#      today and reaching for it earlier is how the wrong text gets rewritten.
+#   1. What the focused window copies on Ctrl+C right now. Where the keys can
+#      be sent this is the whole answer, not a first try: a window that copies
+#      nothing has nothing selected, and falling through to PRIMARY from here
+#      is how the panel opened on some other window's sentence from an hour
+#      ago.
+#   2. PRIMARY, only where they cannot: the setting turned off, or no window
+#      focused at all. It holds the last selection made anywhere, so it is a
+#      last resort rather than a fallback.
+#
+# A terminal gets neither. It opens the panel empty, the same as nothing being
+# selected at all.
+#
+# Nothing selected is not a puzzle to solve, it is an answer: the panel opens
+# empty and you type into it. Selecting the whole field on the user's behalf
+# put a page into a rewrite when a sentence was meant, and the clipboard holds
+# whatever was copied at some point today. Neither is a guess worth making, and
+# text already on the clipboard is a paste the user can make themselves.
 capture() {
   mkdir -p "$STATE_DIR"
-  local active address class text source saved
+  local active address class text source saved saved_type
   if [[ ${1:-} == "--if-stale" && -f $SESSION ]]; then
     local age=$(( $(date +%s) - $(stat -c %Y "$SESSION") ))
     ((age < 3)) && return 0
@@ -113,44 +140,48 @@ capture() {
   active=$(hyprctl activewindow -j 2>/dev/null)
   address=$(jq -r '.address // ""' <<<"$active")
   class=$(jq -r '.class // ""' <<<"$active")
-  saved=$(wl-paste --no-newline 2>/dev/null)
+
+  # A terminal is asked nothing and read for nothing, and the clipboard below
+  # is never touched on its account. Ctrl+C there is stop rather than copy, and
+  # PRIMARY is the last selection made anywhere, which is how a terminal with
+  # nothing selected came back holding some other window's paragraph. An empty
+  # panel is the honest answer, and pasting into it is one keystroke.
+  if is_terminal "$class"; then
+    settext ""
+    return 0
+  fi
+
   # The clipboard gets cleared below to make "nothing was copied" legible, so
-  # put the restore on the way out rather than at the end of the branch: a
-  # capture that dies in the middle must not take the user's clipboard with it.
-  trap '[[ -n $saved ]] && printf "%s" "$saved" | wl-copy 2>/dev/null' RETURN
+  # it has to be handed back exactly as it was, through a file rather than a
+  # variable. Bash cannot hold a NUL byte: an image on the clipboard went in as
+  # 29 bytes of PNG and came back out as 17 bytes of octet-stream rubbish,
+  # which is to say opening the panel destroyed it. The restore goes on the way
+  # out rather than at the end of the branch, since a capture that dies in the
+  # middle must not take the clipboard with it.
+  saved=$(mktemp)
+  saved_type=$(wl-paste --list-types 2>/dev/null | head -1)
+  wl-paste --no-newline >"$saved" 2>/dev/null
+  trap '[[ -s $saved ]] && wl-copy ${saved_type:+--type "$saved_type"} <"$saved" 2>/dev/null; rm -f "$saved"' RETURN
   text=""
   source=""
 
-  if [[ -n $address ]] && ! is_terminal "$class" && [[ $(setting captureFallback true) == "true" ]]; then
+  if [[ -n $address ]] && [[ $(setting captureFallback true) == "true" ]]; then
     # Clearing first turns "did anything get copied" into a question the
     # clipboard can answer by itself. Comparing against the previous contents
     # instead called a real copy "nothing selected" whenever you happened to
     # have that same sentence on the clipboard already.
     wl-copy --clear 2>/dev/null
     text=$(press_until_copied)
-    [[ -n $text ]] && source="selection"
-
-    if [[ -z $text ]]; then
-      # Ctrl+A also leaves the field selected, which is what makes the result
-      # land on top of it rather than beside it. Only reachable once the copy
-      # loop above has given up, so a live selection never gets here.
-      press a
-      press c
-      sleep 0.25
-      text=$(wl-paste --no-newline 2>/dev/null)
-      [[ -n $text ]] && source="field"
-    fi
-
-  fi
-
-  if [[ -z $text ]]; then
+  else
     text=$(wl-paste --primary --no-newline 2>/dev/null)
-    [[ -n $text ]] && source="selection"
   fi
+  [[ -n $text ]] && source="selection"
 
+  # The same empty session compose writes, so the panel opens on a field to
+  # type into and Replace stays off it: there is no selection to paste over.
   if [[ -z $text ]]; then
-    text="$saved"
-    source="clipboard"
+    settext ""
+    return 0
   fi
 
   jq -n --arg text "$text" --arg source "$source" --arg address "$address" \
@@ -468,7 +499,12 @@ selftest() {
   (
     presses=0
     press() { presses=$((presses + 1)); }
-    wl-paste() { ((presses >= 3)) && printf 'landed'; }
+    wl-paste() {
+      case "$1" in
+        --list-types) ((presses >= 3)) && printf 'text/plain\n' ;;
+        *) ((presses >= 3)) && printf 'landed' ;;
+      esac
+    }
     # 'landed' only exists from the third press on, so getting it back is the
     # proof that one silent failure did not end the attempt.
     [[ $(press_until_copied 2000) == landed ]] || exit 1
