@@ -99,10 +99,13 @@ The question is asked one of two ways, and never both:
 1. **Ctrl+C into the focused window.** Where the keys can be sent this is the
    whole answer rather than a first try: a window that copies nothing has
    nothing selected.
-2. **The primary selection,** only where they cannot, which means a terminal,
-   the setting below turned off, or no focused window. It holds on to whatever
-   you last selected anywhere, however long ago, which is why it is a last
-   resort and not a fallback from step 1.
+2. **The primary selection,** only where they cannot, which means the setting
+   below turned off, or no focused window. It holds on to whatever you last
+   selected anywhere, however long ago, which is why it is a last resort and
+   not a fallback from step 1.
+
+A terminal gets neither. The panel opens empty over one, the same as it does
+when nothing is selected anywhere.
 
 Nothing selected is an answer rather than a puzzle: the panel opens empty and
 you type into it, the way it does for `SUPER + CTRL + SHIFT + H`. It never
@@ -113,17 +116,18 @@ Only text counts. An image on the clipboard is not a sentence, so capture will
 not read one as if it were, and it hands whatever was there back byte for byte
 when it is done.
 
-Terminals never get keystrokes. Ctrl+C there is stop rather than copy, and
-asking with Ctrl+Shift+C instead does not help: Hyprland fires the keybinding
-while Super and Shift are still held, so the chord arrives as
+A terminal is left alone completely: no keystroke, no read, and the clipboard
+is not touched on its account either. Ctrl+C there is stop rather than copy,
+and asking with Ctrl+Shift+C instead does not help, because Hyprland fires the
+keybinding while Super and Shift are still held, so the chord arrives as
 Super+Ctrl+Shift+C, which no terminal treats as copy and kitty hands to the
-shell as text you then have to delete. Every other window drops an unrecognised
-chord in silence. So in a terminal the panel reads the selection it publishes,
-and a stale one can turn up there. `Replace` still pastes into a terminal
-correctly, with Ctrl+Shift+V, because by then the panel is closed and nothing
-is held.
+shell as text you then have to delete. Reading the primary selection instead
+was no better: it is the last thing highlighted anywhere, so a terminal with
+nothing selected came back holding another window's paragraph. An empty panel
+is the honest answer, and pasting into it is one keystroke.
 
-Turn "Read the focused window" off to get the terminal behaviour everywhere.
+Turn "Read the focused window" off to stop the panel asking any window for
+anything, at the cost of falling back to the primary selection everywhere.
 
 Whatever it got goes into an editable field at the top of the panel, so a
 selection that came out with a stray half sentence is trimmed there rather than
