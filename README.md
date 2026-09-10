@@ -17,8 +17,9 @@ Nothing selected? `SUPER + CTRL + SHIFT + H` opens the same panel with an empty
 field to type or paste into, for text that is not on the screen yet. That one
 captures nothing, so it works while a terminal is focused too.
 
-![The OmaPen panel: the captured sentence, nine actions in a three by three
-grid, and the rewrite with Replace, Copy and Again](preview.webp)
+![The OmaPen panel over the text it captured: that text in an editable field,
+nine actions in a three by three grid, and the fixed sentence with Replace,
+Copy and Again](preview.webp)
 
 ## Requirements
 
