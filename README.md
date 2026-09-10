@@ -6,16 +6,20 @@ Word: the same idea on Omarchy, using the coding agent Omarchy already knows
 about instead of an API key. Text that is not selected anywhere works too: open
 the panel empty and type into it.
 
-Select some text, press `SUPER + SHIFT + H`, pick an action or type your own.
-The result comes back in a panel you can paste, or straight over the selection.
-Keyboard the whole way: open, type, Return to run, Ctrl+Return to paste it back.
+Select some text, press `SUPER + SHIFT + H`, pick an action, or open `Custom`
+and say what you want in your own words. What was captured sits in a field you
+can edit first, so a stray half sentence is fixed in place rather than back in
+the document. The result comes back in a panel you can paste, or straight over
+the selection. Keyboard the whole way: open, `Alt` and the action's digit,
+`Ctrl+Return` to paste it back.
 
 Nothing selected? `SUPER + CTRL + SHIFT + H` opens the same panel with an empty
 field to type or paste into, for text that is not on the screen yet. That one
 captures nothing, so it works while a terminal is focused too.
 
-![The OmaPen panel: the captured sentence, the eight presets, a free prompt
-field, and the rewrite with Replace, Copy and Again](preview.webp)
+![The OmaPen panel over the text it captured: that text in an editable field,
+nine actions in a three by three grid, and the fixed sentence with Replace,
+Copy and Again](preview.webp)
 
 ## Requirements
 
@@ -101,8 +105,10 @@ terminal the panel falls back to the selection and the clipboard. Turn "Read the
 focused window" off to get that behaviour everywhere.
 
 A page with nothing selected has no field to read, so step 2 copies the whole
-page. The preview at the top of the panel is there to catch that before you run
-anything.
+page. The panel puts whatever it got in an editable field at the top, so that
+is caught, and trimmed, before you run anything. Editing it there changes only
+what the agent is given: the window the text came from is remembered either
+way, so `Replace` still knows where to paste.
 
 Wayland has no way to add an item to another application's context menu, so the
 keybinding is the equivalent: it works in every window, including the ones that
@@ -111,11 +117,14 @@ have no menu at all.
 ## Bring your own text
 
 `SUPER + CTRL + SHIFT + H`, or a click on the bar icon, opens the panel with
-nothing captured and the cursor in an empty field. Paste something from your phone, or type the sentence you
-are about to write, and the same actions apply to it. The badge reads
-`YOUR TEXT` so it is never in doubt which one you are in.
+nothing captured and the cursor in the same field, empty. Paste something from
+your phone, or type the sentence you are about to write, and the same actions
+apply to it. The badge reads `YOUR TEXT` so it is never in doubt which one you
+are in.
 
-Type the text, press Return to move to the instruction, Return again to run.
+The field takes more than one line: Return breaks the line, so a pasted
+paragraph stays a paragraph. Tab moves on to the actions, and Return runs the
+one you land on.
 No keystrokes are sent to any window for this, which is also why it is the one
 that works while a terminal is focused, where capture refuses to press keys.
 
@@ -128,10 +137,10 @@ Nothing here needs a pointer.
 
 | Key | What it does |
 |---|---|
-| `Tab` / `Shift+Tab` | Move through the field, the actions, and the buttons under a result |
+| `Tab` / `Shift+Tab` | Move through the text, the nine actions, the `Custom` prompt while it is open, and the buttons under a result |
 | `←` `→` `↑` `↓`, or `h` `j` `k` `l` | The same ring, once focus has left the text field |
-| `Return` | Run the focused action, or the instruction you typed |
-| `Alt+1` … `Alt+9` | Run that action from anywhere, mid-sentence included. Each action is labelled with its own digit, so there is nothing to memorise |
+| `Return` | Run the focused action, or the instruction typed into `Custom`. Inside the text you are working on it breaks the line |
+| `Alt+1` … `Alt+9` | Run that action from anywhere, mid-sentence included. Each action is labelled with its own digit, so there is nothing to memorise. The last digit toggles `Custom` |
 | `Ctrl+Return` | Paste the result back over the selection |
 | `Esc` | Close |
 
@@ -207,16 +216,18 @@ omarchy bar set omapen model ""         # back to the small fast default
 | Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. Passed to the agent as its model flag. Empty gives claude `haiku`, which is the right size for a rewrite, and leaves pi and omp on whatever your own provider config already defaults to. |
 | What to do with the result | Show in panel | Or replace the selection: focuses the window the text came from and pastes over it. |
 | Grab the whole field | on | The Ctrl+A Ctrl+C fallback described above. |
-| Panel width | 480 | In the shell's spacing units. |
+| Panel width | 540 | In the shell's spacing units. |
 
 ## Your own actions
 
 The shipped actions live in `prompts.json`. Copy it to
 `~/.config/omapen/prompts.json` and that file wins. Each entry needs an
 `id`, a `label`, an optional Nerd Font `icon`, and the `instruction` the agent
-is given. The first nine show their `Alt` digit in place of the icon, since a
-shortcut you can read beats a glyph next to a label that already says the same
-thing. Anything past the ninth has no shortcut to advertise and keeps its icon.
+is given. They show their `Alt` digit in place of the icon, since a shortcut
+you can read beats a glyph next to a label that already says the same thing.
+`Custom` takes the digit after the last of them, so eight actions leaves it on
+`Alt+9`. Anything past the ninth digit has no shortcut to advertise and keeps
+its icon.
 
 ## How it works
 
@@ -226,6 +237,7 @@ agent is in `bin/omapen`, which runs on its own from a terminal:
 ```bash
 bin/omapen capture              # selection -> $XDG_RUNTIME_DIR/omapen/session.json
 bin/omapen compose              # empty session, nothing captured
+bin/omapen edittext "..."       # change the text, keep where it came from
 bin/omapen run shorten          # ask the agent, print the result
 bin/omapen run - "make it rhyme"
 bin/omapen insert               # paste the last result back where it came from

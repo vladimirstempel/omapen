@@ -1,5 +1,11 @@
 [
   {
+    "id": "grammar",
+    "label": "Fix grammar",
+    "icon": "󰓆",
+    "instruction": "Fix spelling, grammar and punctuation. Change nothing else: not the wording, not the tone, not the structure."
+  },
+  {
     "id": "rewrite",
     "label": "Rewrite",
     "icon": "󰑖",
@@ -30,12 +36,6 @@
     "instruction": "Rewrite this the way you would say it to a colleague. Plain, warm, not sloppy."
   },
   {
-    "id": "grammar",
-    "label": "Fix grammar",
-    "icon": "󰓆",
-    "instruction": "Fix spelling, grammar and punctuation. Change nothing else: not the wording, not the tone, not the structure."
-  },
-  {
     "id": "bullets",
     "label": "To bullets",
     "icon": "󰈙",
@@ -43,7 +43,7 @@
   },
   {
     "id": "translate-en",
-    "label": "Translate to English",
+    "label": "Translate to EN",
     "icon": "󰊿",
     "instruction": "Translate this into English. Match the register of the original. Output the translation only."
   }
