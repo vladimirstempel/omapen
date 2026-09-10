@@ -108,6 +108,10 @@ you type into it, the way it does for `SUPER + CTRL + SHIFT + H`. It never
 selects the whole field for you, and it never reaches for the clipboard. Text
 you copied yourself is a `Ctrl+V` away if you want it.
 
+Only text counts. An image on the clipboard is not a sentence, so capture will
+not read one as if it were, and it hands whatever was there back byte for byte
+when it is done.
+
 Terminals never get keystrokes. Ctrl+C there is stop rather than copy, and
 asking with Ctrl+Shift+C instead does not help: Hyprland fires the keybinding
 while Super and Shift are still held, so the chord arrives as

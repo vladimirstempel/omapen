@@ -103,8 +103,13 @@ press_until_copied() {
   while :; do
     press c
     sleep 0.1
-    text=$(wl-paste --no-newline 2>/dev/null)
-    [[ -n $text ]] && { printf '%s' "$text"; return 0; }
+    # Only text is a selection worth rewriting. Whatever else sits on the
+    # clipboard is somebody's image, and reading it as a sentence is how binary
+    # rubbish reached the panel.
+    if wl-paste --list-types 2>/dev/null | grep -qi '^text/'; then
+      text=$(wl-paste --no-newline 2>/dev/null)
+      [[ -n $text ]] && { printf '%s' "$text"; return 0; }
+    fi
     (( $(now) >= deadline )) && return 1
   done
 }
@@ -128,7 +133,7 @@ press_until_copied() {
 # text already on the clipboard is a paste the user can make themselves.
 capture() {
   mkdir -p "$STATE_DIR"
-  local active address class text source saved
+  local active address class text source saved saved_type
   if [[ ${1:-} == "--if-stale" && -f $SESSION ]]; then
     local age=$(( $(date +%s) - $(stat -c %Y "$SESSION") ))
     ((age < 3)) && return 0
@@ -137,11 +142,18 @@ capture() {
   active=$(hyprctl activewindow -j 2>/dev/null)
   address=$(jq -r '.address // ""' <<<"$active")
   class=$(jq -r '.class // ""' <<<"$active")
-  saved=$(wl-paste --no-newline 2>/dev/null)
+
   # The clipboard gets cleared below to make "nothing was copied" legible, so
-  # put the restore on the way out rather than at the end of the branch: a
-  # capture that dies in the middle must not take the user's clipboard with it.
-  trap '[[ -n $saved ]] && printf "%s" "$saved" | wl-copy 2>/dev/null' RETURN
+  # it has to be handed back exactly as it was, through a file rather than a
+  # variable. Bash cannot hold a NUL byte: an image on the clipboard went in as
+  # 29 bytes of PNG and came back out as 17 bytes of octet-stream rubbish,
+  # which is to say opening the panel destroyed it. The restore goes on the way
+  # out rather than at the end of the branch, since a capture that dies in the
+  # middle must not take the clipboard with it.
+  saved=$(mktemp)
+  saved_type=$(wl-paste --list-types 2>/dev/null | head -1)
+  wl-paste --no-newline >"$saved" 2>/dev/null
+  trap '[[ -s $saved ]] && wl-copy ${saved_type:+--type "$saved_type"} <"$saved" 2>/dev/null; rm -f "$saved"' RETURN
   text=""
   source=""
 
@@ -482,7 +494,12 @@ selftest() {
   (
     presses=0
     press() { presses=$((presses + 1)); }
-    wl-paste() { ((presses >= 3)) && printf 'landed'; }
+    wl-paste() {
+      case "$1" in
+        --list-types) ((presses >= 3)) && printf 'text/plain\n' ;;
+        *) ((presses >= 3)) && printf 'landed' ;;
+      esac
+    }
     # 'landed' only exists from the third press on, so getting it back is the
     # proof that one silent failure did not end the attempt.
     [[ $(press_until_copied 2000) == landed ]] || exit 1
