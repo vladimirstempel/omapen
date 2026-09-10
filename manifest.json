@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omapen",
   "name": "OmaPen",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "stempelv",
   "description": "\"Help me write\" for Omarchy: rewrite whatever you have selected, or whatever you type into the panel, with the coding agent Omarchy already knows about",
   "license": "MIT",
