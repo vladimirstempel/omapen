@@ -13,9 +13,10 @@ the document. The result comes back in a panel you can paste, or straight over
 the selection. Keyboard the whole way: open, `Alt` and the action's digit,
 `Ctrl+Return` to paste it back.
 
-Nothing selected? `SUPER + CTRL + SHIFT + H` opens the same panel with an empty
-field to type or paste into, for text that is not on the screen yet. That one
-captures nothing, so it works while a terminal is focused too.
+Nothing selected opens the same panel empty, to type or paste into, for text
+that is not on the screen yet. `SUPER + CTRL + SHIFT + H` opens it that way on
+purpose, even when something is selected, and sends no keystroke to any window
+to do it.
 
 ![The OmaPen panel over the text it captured: that text in an editable field,
 nine actions in a three by three grid, and the fixed sentence with Replace,
@@ -142,11 +143,14 @@ your phone, or type the sentence you are about to write, and the same actions
 apply to it. The badge reads `YOUR TEXT` so it is never in doubt which one you
 are in.
 
+`SUPER + SHIFT + H` lands here too whenever nothing is selected. The difference
+is that this one gets you here on purpose: it ignores a selection you have left
+lying around rather than rewriting it, and it asks no window for anything.
+
 The field takes more than one line: Return breaks the line, so a pasted
 paragraph stays a paragraph. Tab moves on to the actions, and Return runs the
 one you land on.
-No keystrokes are sent to any window for this, which is also why it is the one
-that works while a terminal is focused, where capture refuses to press keys.
+No keystrokes are sent to any window for this.
 
 There is no window behind it to paste back into, so `Replace` is not offered
 here and `Copy` is the way out.
