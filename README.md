@@ -95,25 +95,30 @@ Nothing else is left behind: the session file and the last result live in
 
 The question is asked one of two ways, and never both:
 
-1. **Asking the window to copy,** with Ctrl+C, or Ctrl+Shift+C when it is a
-   terminal. Where the keys can be sent this is the whole answer rather than a
-   first try: a window that copies nothing has nothing selected.
-2. **The primary selection,** only where they cannot, which means the setting
-   below turned off. It holds on to whatever you last selected anywhere,
-   however long ago, which is why it is a last resort and not a fallback from
-   step 1.
+1. **Ctrl+C into the focused window.** Where the keys can be sent this is the
+   whole answer rather than a first try: a window that copies nothing has
+   nothing selected.
+2. **The primary selection,** only where they cannot, which means a terminal,
+   the setting below turned off, or no focused window. It holds on to whatever
+   you last selected anywhere, however long ago, which is why it is a last
+   resort and not a fallback from step 1.
 
 Nothing selected is an answer rather than a puzzle: the panel opens empty and
 you type into it, the way it does for `SUPER + CTRL + SHIFT + H`. It never
 selects the whole field for you, and it never reaches for the clipboard. Text
 you copied yourself is a `Ctrl+V` away if you want it.
 
-Terminals take the same keys under one more modifier: Ctrl+Shift+C to copy,
-Ctrl+Shift+V to paste, because the plain versions there mean stop and
-literal-next. That is the only reason they were ever a special case. Turn
-"Read the focused window" off to stop the panel sending keys anywhere, at the
-cost of falling back to the primary selection, which is whatever you last
-highlighted rather than what is in front of you.
+Terminals never get keystrokes. Ctrl+C there is stop rather than copy, and
+asking with Ctrl+Shift+C instead does not help: Hyprland fires the keybinding
+while Super and Shift are still held, so the chord arrives as
+Super+Ctrl+Shift+C, which no terminal treats as copy and kitty hands to the
+shell as text you then have to delete. Every other window drops an unrecognised
+chord in silence. So in a terminal the panel reads the selection it publishes,
+and a stale one can turn up there. `Replace` still pastes into a terminal
+correctly, with Ctrl+Shift+V, because by then the panel is closed and nothing
+is held.
+
+Turn "Read the focused window" off to get the terminal behaviour everywhere.
 
 Whatever it got goes into an editable field at the top of the panel, so a
 selection that came out with a stray half sentence is trimmed there rather than
@@ -226,7 +231,7 @@ omarchy bar set omapen model ""         # back to the small fast default
 | Agent | System default | Follows `omarchy default agent`, or names one to use instead. Only claude, pi and omp are accepted. |
 | Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. Passed to the agent as its model flag. Empty gives claude `haiku`, which is the right size for a rewrite, and leaves pi and omp on whatever your own provider config already defaults to. |
 | What to do with the result | Show in panel | Or replace the selection: focuses the window the text came from and pastes over it. |
-| Read the focused window | on | Asks the window to copy, with Ctrl+C or Ctrl+Shift+C in a terminal. Off reads the primary selection instead, which is the last thing highlighted anywhere rather than the selection in front of you. |
+| Read the focused window | on | Sends the window a Ctrl+C, which is what tells an empty selection apart from an old one. Off reads the primary selection instead, which is the last thing highlighted anywhere rather than the selection in front of you. |
 | Panel width | 540 | In the shell's spacing units. |
 
 ## Your own actions

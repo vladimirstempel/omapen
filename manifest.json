@@ -62,7 +62,7 @@
         "type": "boolean",
         "label": "Read the focused window",
         "defaultValue": true,
-        "description": "Asks the window in front of you for its selection by sending it a copy: Ctrl+C, or Ctrl+Shift+C when it is a terminal, where the plain one means stop. This is what keeps the panel on the sentence you are looking at, and what lets it tell an empty selection apart from an old one. Off sends no keys anywhere and reads the primary selection instead, which is whatever you last highlighted, however long ago and in whatever window. Either way, nothing selected opens the panel empty rather than reaching for the clipboard."
+        "description": "Asks the window in front of you for its selection by sending it Ctrl+C. This is what keeps the panel on the sentence you are looking at, and what lets it tell an empty selection apart from an old one. Off sends no keys anywhere and reads the primary selection instead, which is whatever you last highlighted, however long ago and in whatever window. Terminals are always read that way, since a synthetic copy arriving under the keybinding's own modifiers gets typed into the prompt rather than copying anything. Either way, nothing selected opens the panel empty rather than reaching for the clipboard."
       },
       {
         "key": "panelWidth",

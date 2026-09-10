@@ -68,12 +68,19 @@ press() {
 
 # --------------------------------------------------------------- capture
 
-# Terminals take the same keys under one more modifier: Ctrl+Shift+C to copy,
-# Ctrl+Shift+V to paste. They used to be refused keystrokes altogether, which
-# is a wider rule than the reason behind it, and it left PRIMARY as the only
-# way to read them. PRIMARY holds the last selection made anywhere rather than
-# the one in front of you, so a terminal with nothing selected came back with
-# somebody else's paragraph.
+# Terminals do copy and paste under one more modifier, Ctrl+Shift+C and
+# Ctrl+Shift+V, because the plain versions there mean stop and literal-next.
+#
+# Capture still refuses to press anything into one, and the extra modifier is
+# not enough to change that. Hyprland fires the keybinding while Super+Shift
+# are still physically down, so the synthetic chord lands as Super+Ctrl+Shift+C,
+# which is not kitty's copy binding: kitty forwards it to the shell as a CSI-u
+# sequence and the shell types the printable tail into whatever the user was
+# writing. Every other window drops an unhandled chord in silence, which is why
+# press_until_copied can afford to retry until the user's fingers leave. A
+# terminal cannot: each miss is a line of garbage in a prompt they may then
+# press Enter on. So capture reads the selection a terminal publishes and
+# leaves it alone, and this classifier is what insert uses to paste correctly.
 is_terminal() {
   case "${1,,}" in
     kitty | foot | footclient | alacritty | xterm | st | konsole | terminator | \
@@ -90,11 +97,11 @@ is_terminal() {
 # page. So press until the clipboard fills or the budget runs out: the first
 # press after the user's fingers leave the keybinding is the one that lands.
 press_until_copied() {
-  local mod="${1:-}" budget_ms="${2:-900}" deadline now text
+  local budget_ms="${1:-900}" deadline now text
   now() { printf '%s' $(( $(date +%s%N) / 1000000 )); }
   deadline=$(( $(now) + budget_ms ))
   while :; do
-    press c "$mod"
+    press c
     sleep 0.1
     text=$(wl-paste --no-newline 2>/dev/null)
     [[ -n $text ]] && { printf '%s' "$text"; return 0; }
@@ -104,14 +111,15 @@ press_until_copied() {
 
 # "The text I am looking at" is asked one of two ways, and never both:
 #
-#   1. What the focused window copies when asked, on Ctrl+C or, in a terminal,
-#      Ctrl+Shift+C. Where the keys can be sent this is the whole answer, not a
-#      first try: a window that copies nothing has nothing selected, and
-#      falling through to PRIMARY from here is how the panel opened on some
-#      other window's sentence from an hour ago.
-#   2. PRIMARY, only where they cannot: the setting turned off, or no window
-#      focused at all. It holds the last selection made anywhere, so it is a
-#      last resort rather than a fallback.
+#   1. What the focused window copies on Ctrl+C right now. Where the keys can
+#      be sent this is the whole answer, not a first try: a window that copies
+#      nothing has nothing selected, and falling through to PRIMARY from here
+#      is how the panel opened on some other window's sentence from an hour
+#      ago.
+#   2. PRIMARY, only where they cannot: a terminal, the setting turned off, or
+#      no window focused at all. It holds the last selection made anywhere, so
+#      in a terminal a stale selection can still turn up. That is the price of
+#      never typing into one.
 #
 # Nothing selected is not a puzzle to solve, it is an answer: the panel opens
 # empty and you type into it. Selecting the whole field on the user's behalf
@@ -137,17 +145,13 @@ capture() {
   text=""
   source=""
 
-  if [[ -n $address ]] && [[ $(setting captureFallback true) == "true" ]]; then
+  if [[ -n $address ]] && ! is_terminal "$class" && [[ $(setting captureFallback true) == "true" ]]; then
     # Clearing first turns "did anything get copied" into a question the
     # clipboard can answer by itself. Comparing against the previous contents
     # instead called a real copy "nothing selected" whenever you happened to
     # have that same sentence on the clipboard already.
     wl-copy --clear 2>/dev/null
-    if is_terminal "$class"; then
-      text=$(press_until_copied shift)
-    else
-      text=$(press_until_copied)
-    fi
+    text=$(press_until_copied)
   else
     text=$(wl-paste --primary --no-newline 2>/dev/null)
   fi
