@@ -27,9 +27,12 @@ Copy and Again](preview.webp)
 - Omarchy 4 (the Quickshell `omarchy-shell`, plugin schema 1)
 - A default agent OmaPen can run with no tools: `omarchy default agent claude`,
   or `pi`, or `omp`, signed in and working on its own. Any other agent is
-  refused, see [Why only three agents](#why-only-three-agents). If the agent
-  cannot answer from a terminal, it cannot answer here either, and the panel
-  will show you what it said.
+  refused, see [Which agents are accepted](#which-agents-are-accepted). If the
+  agent cannot answer from a terminal, it cannot answer here either, and the
+  panel will show you what it said.
+- Or no agent at all: `ollama` with a model pulled, which runs on your own
+  machine and costs nothing. See [A local way in, with
+  ollama](#a-local-way-in-with-ollama).
 - `jq`, `wl-clipboard`, `wtype`, all of which Omarchy already installs
 
 ## Install
@@ -176,7 +179,7 @@ Focus is drawn as a ring in the theme's accent colour. The field keeps every
 key while it has focus, so `j` and `k` are typed rather than moving the cursor:
 `Tab` is what leaves it.
 
-## Why only three agents
+## Which agents are accepted
 
 The text OmaPen sends is whatever you had selected: a web page, an email, a chat
 message, a document someone else wrote. It is untrusted, and a coding agent is a
@@ -185,13 +188,15 @@ program that reads text and then acts on your machine. A passage that says
 still has a Read tool, and the answer lands in whatever you were typing into.
 
 So OmaPen runs the agent with its entire tool set switched off, and only accepts
-agents whose own CLI documents a switch that does exactly that:
+agents whose own CLI documents a switch that does exactly that, plus ollama,
+which never had tools to take away:
 
 | Agent | How it is confined |
 |---|---|
 | claude | `--restricted --tools ""` (no tools at all, and user, project and local settings files are ignored so nothing can hand them back), plus `--strict-mcp-config` with an empty config for MCP servers |
 | pi | `--no-tools` |
 | omp | `--no-tools` |
+| ollama | nothing to switch off: it runs a model and prints what it says, with no tool loop in it at all |
 
 codex, gemini, opencode, crush, copilot, grok and agy are refused. They offer
 sandboxes, plan modes, approval policies and tool allowlists, but none of those
@@ -226,6 +231,37 @@ google` says whether it landed, and `pi --list-models google` names the models
 you can put in the Model setting. Leaving Model empty uses the agent's own
 default, which is what most people want.
 
+### A local way in, with ollama
+
+ollama needs no key and no account, and the text never leaves the machine,
+which for a paragraph out of somebody's email is the strongest version of the
+argument above. Pull a model and point OmaPen at it:
+
+```bash
+ollama pull gemma3
+omarchy bar set omapen agent ollama
+```
+
+The model is an argument to `ollama run`, not a flag, so there is always one in
+play. Leaving Model empty takes your most recent pull, which is right while you
+have one. Name it yourself once you have several:
+
+```bash
+ollama list                             # the names it will accept
+omarchy bar set omapen model gemma3:4b
+```
+
+A small model on a warm server answers a rewrite in a few seconds. The first
+run after a boot also pays for loading the weights, so give it a moment before
+deciding it is stuck.
+
+If your server is not the local default, `OLLAMA_HOST` has to reach the Wayland
+session rather than your shell, the same way the API key above does:
+
+```bash
+echo 'OLLAMA_HOST=192.168.1.10:11434' >> ~/.config/environment.d/omapen.conf
+```
+
 ## Settings
 
 Settings live inline on the widget's entry in `~/.config/omarchy/shell.json`.
@@ -240,8 +276,8 @@ omarchy bar set omapen model ""         # back to the small fast default
 
 | Setting | Default | What it does |
 |---|---|---|
-| Agent | System default | Follows `omarchy default agent`, or names one to use instead. Only claude, pi and omp are accepted. |
-| Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. Passed to the agent as its model flag. Empty gives claude `haiku`, which is the right size for a rewrite, and leaves pi and omp on whatever your own provider config already defaults to. |
+| Agent | System default | Follows `omarchy default agent`, or names one to use instead. Only claude, pi, omp and ollama are accepted. |
+| Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. Passed to the agent as its model flag. Empty gives claude `haiku`, which is the right size for a rewrite, gives ollama your most recent pull, and leaves pi and omp on whatever your own provider config already defaults to. |
 | What to do with the result | Show in panel | Or replace the selection: focuses the window the text came from and pastes over it. |
 | Read the focused window | on | Sends the window a Ctrl+C, which is what tells an empty selection apart from an old one. Off reads the primary selection instead, which is the last thing highlighted anywhere rather than the selection in front of you. |
 | Panel width | 540 | In the shell's spacing units. |
@@ -275,7 +311,7 @@ bin/omapen selftest             # the whole chain against a fake agent, no token
 
 The agent runs headless, with every tool switched off, in an empty temporary
 directory: the tools are what keep your selection from turning into actions
-(see [Why only three agents](#why-only-three-agents)), and the empty directory
+(see [Which agents are accepted](#which-agents-are-accepted)), and the empty directory
 keeps a stray project `CLAUDE.md` or repository out of the rewrite.
 
 ## Development

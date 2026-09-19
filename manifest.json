@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omapen",
   "name": "OmaPen",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "stempelv",
   "description": "\"Help me write\" for Omarchy: rewrite whatever you have selected, or whatever you type into the panel, with the coding agent Omarchy already knows about",
   "license": "MIT",
@@ -34,17 +34,18 @@
           "System default",
           "claude",
           "pi",
-          "omp"
+          "omp",
+          "ollama"
         ],
         "defaultValue": "System default",
-        "description": "System default follows the agent picked in Setup > Default agent, which is the one already installed and signed in. Naming an agent here uses that one instead, and fails plainly when it is not installed. Only claude, pi and omp are accepted: they are the agents whose CLI can be told to run with no tools at all, and text captured off your screen is untrusted."
+        "description": "System default follows the agent picked in Setup > Default agent, which is the one already installed and signed in. Naming an agent here uses that one instead, and fails plainly when it is not installed. Only claude, pi and omp are accepted: they are the agents whose CLI can be told to run with no tools at all, and text captured off your screen is untrusted. ollama is accepted too, for the opposite reason: it runs a model on your own machine and has no tools in the first place."
       },
       {
         "key": "model",
         "type": "string",
         "label": "Model",
         "defaultValue": "",
-        "description": "Passed to the agent as its model flag. Empty gives claude haiku, which is the right size for a rewrite, and leaves pi and omp on whatever your own provider config defaults to. Name a model here to override that."
+        "description": "Passed to the agent as its model flag. Empty gives claude haiku, which is the right size for a rewrite, gives ollama your most recent pull, and leaves pi and omp on whatever your own provider config defaults to. Name a model here to override that."
       },
       {
         "key": "resultMode",
