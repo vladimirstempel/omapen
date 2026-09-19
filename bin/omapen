@@ -250,6 +250,10 @@ resolve_agent() {
 default_model() {
   case "$1" in
     claude) printf 'haiku' ;;
+    # ollama has no default of its own: the model is an argument, not a flag,
+    # and there is nothing to run without one. `ollama list` prints the newest
+    # pull first, which is the one a person just set up.
+    ollama) ollama list 2>/dev/null | awk 'NR == 2 { print $1 }' ;;
   esac
 }
 
@@ -265,6 +269,10 @@ default_model() {
 # all": their safest settings still let a model read files, which is enough for
 # a selected passage to have file contents pasted back into the document it came
 # from.
+#
+# ollama is the exception that proves the rule: it is not an agent, it is a
+# model runner. There is no tool loop in it to switch off, so there is nothing
+# to confine, and the text never leaves the machine.
 agent_command() {
   local agent="$1" model="$2"
   [[ -n $model ]] || model=$(default_model "$agent")
@@ -291,8 +299,18 @@ agent_command() {
       [[ -n $model ]] && printf '%s\n' "--model=$model"
       printf '%s\n' -p
       ;;
+    ollama)
+      # Not an agent at all: ollama runs a model and prints what it says. There
+      # is no tool loop to switch off, nothing of yours it can reach, and the
+      # text stays on the machine, which is the whole reason it is here.
+      [[ -n $model ]] || die "ollama has no model to run. Pull one with 'ollama pull gemma3', or name one in the Model setting."
+      # --hidethinking keeps a reasoning model's scratchpad out of the answer.
+      # --nowordwrap so a paragraph comes back as the paragraph it was, should
+      # ollama ever find itself on a terminal.
+      printf '%s\n' ollama run "$model" --hidethinking --nowordwrap
+      ;;
     *)
-      die "$agent has no way to run with its tools switched off, so OmaPen will not hand it text from your screen. Agents it can confine: claude, pi, omp."
+      die "$agent has no way to run with its tools switched off, so OmaPen will not hand it text from your screen. Agents it can confine: claude, pi, omp. It will also run a local model through ollama."
       ;;
   esac
 }
@@ -584,6 +602,16 @@ TRACE
     ((cleared == 1)) || exit 1          # agent changed, model dropped
     rm -rf "$STATE_DIR"
   ) || die "selftest: the model outlived a change of agent"
+
+  # ollama takes its model as an argument rather than a flag, so a missing one
+  # has to be refused here. `ollama run --hidethinking` with no model would sit
+  # waiting for a name that never comes.
+  out=$(agent_command ollama 'gemma3:4b' | tr '\n' ' ')
+  [[ $out == "ollama run gemma3:4b --hidethinking --nowordwrap " ]] ||
+    die "selftest: ollama command wrong: $(printf '%q' "$out")"
+  # die ends the subshell, so a non-zero status here is the refusal itself.
+  ( ollama() { :; }; agent_command ollama '' ) 2>/dev/null &&
+    die "selftest: ollama ran without a model"
 
   out=$(focus_lua 0xdead)
   [[ $out == "hl.dsp.focus({ window = 'address:0xdead' })" ]] || die "selftest: focus lua wrong: $out"
