@@ -24,6 +24,16 @@ to do it.
 nine actions in a three by three grid, and the fixed sentence with Replace,
 Copy and Again](preview.webp)
 
+## In the browser too
+
+[OmaPen for the browser](https://github.com/vladimirstempel/omapen-extension)
+is the same idea as an extension for Chromium browsers (Chrome, Chromium,
+Brave, Edge, Vivaldi) on Linux and macOS. A pen icon shows in the corner of a
+text field, and `Alt+Shift+H` opens a panel next to the field with the same
+actions and the same agents. `Replace` writes the result back into the field.
+It needs no API key and no Omarchy: a small host program runs the agent on your
+own machine.
+
 ## Requirements
 
 - Omarchy 4 (the Quickshell `omarchy-shell`, plugin schema 1)
