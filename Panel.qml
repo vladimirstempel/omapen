@@ -13,7 +13,9 @@ import "./components"
 Panel {
   id: root
   moduleName: "omapen"
-  ipcTarget: "omapen"
+  // No ipcTarget: the bar builds one copy of this widget per monitor, and only
+  // one of them can own an IPC target. `omarchy-shell shell toggle omapen` goes
+  // through the bar instead, which picks the copy on the focused monitor.
 
   // The bar sizes a widget slot from the root item's implicit size, and this
   // root is a plain Item whose only visual child fills it. Without this the
@@ -41,6 +43,9 @@ Panel {
   // buttons make a square, and a field that is always open reads as the main
   // way in when it is the one people reach for least.
   property bool customOpen: false
+  // The settings take the panel over rather than sharing it: five controls
+  // under nine actions is a page nobody can find anything on.
+  property bool settingsOpen: false
   readonly property string customDigit: root.presets.length < 9 ? String(root.presets.length + 1) : ""
 
   readonly property bool manual: root.sourceKind === "manual"
@@ -53,6 +58,7 @@ Panel {
       promptField.text = ""
       sourceField.text = ""
       customOpen = false
+      settingsOpen = false
       sessionFile.reload()
     } else if (runProc.running) {
       runProc.running = false
@@ -94,6 +100,38 @@ Panel {
     else customButton.forceActiveFocus()
   }
 
+  function toggleSettings() {
+    root.settingsOpen = !root.settingsOpen
+    settingsButton.forceActiveFocus()
+  }
+
+  // Esc inside the settings goes back to the actions, not out of the panel.
+  function closeSettings() {
+    root.settingsOpen = false
+    settingsButton.forceActiveFocus()
+  }
+
+  // Writes this widget's entry in shell.json, which is where bin/omapen reads
+  // its settings from. The shell hands the new entry to every monitor's copy.
+  function persistSettings(values) {
+    var entry = { id: root.moduleName }
+    for (var existing in root.settings) if (existing !== "id") entry[existing] = root.settings[existing]
+    for (var key in values) entry[key] = values[key]
+    root.settings = entry
+    if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
+      root.bar.shell.updateEntryInline(root.moduleName, entry)
+  }
+
+  // A result is there to be used, so focus lands on the button that uses it:
+  // Replace, or Copy in compose mode where there is no window to paste into.
+  // Return is then all it takes. Not while the settings are up, and not when
+  // the panel was closed before the agent answered.
+  function focusResult() {
+    if (!root.opened || root.settingsOpen || root.result === "") return
+    var target = replaceButton.visible ? replaceButton : copyButton
+    target.forceActiveFocus()
+  }
+
   function retry() {
     if (pending === "-") ask("", promptField.text)
     else ask(pending, "")
@@ -112,6 +150,11 @@ Panel {
   // the rest of the shell.
   function focusRing() {
     var ring = []
+    if (root.settingsOpen) {
+      ring.push(settingsButton)
+      for (var s = 0; s < settingsView.stops.length; s++) ring.push(settingsView.stops[s])
+      return ring
+    }
     ring.push(sourceField.input)
     for (var i = 0; i < presetRepeater.count; i++) {
       var item = presetRepeater.itemAt(i)
@@ -125,6 +168,7 @@ Panel {
       if (replaceButton.visible) ring.push(replaceButton)
       ring.push(copyButton, againButton)
     }
+    ring.push(settingsButton)
     return ring
   }
 
@@ -239,6 +283,7 @@ Panel {
       }
       root.errorText = ""
       if (root.replaceMode && !root.manual && root.result !== "") root.apply()
+      else Qt.callLater(root.focusResult)
     }
   }
 
@@ -292,7 +337,7 @@ Panel {
       // A focused field owns every key, or j and k would move the cursor
       // instead of being typed. Tab and Escape are handled on the fields
       // themselves for that reason.
-      blocked: sourceField.editing || promptField.editing
+      blocked: sourceField.editing || promptField.editing || settingsView.editing
 
       Column {
         id: column
@@ -301,149 +346,187 @@ Panel {
         anchors.top: parent.top
         spacing: Style.space(10)
 
-        PanelHeading {
+        Item {
           width: parent.width
-          bar: root.bar
-          sourceKind: root.sourceKind
+          implicitHeight: Math.max(heading.implicitHeight, settingsButton.implicitHeight)
+
+          PanelHeading {
+            id: heading
+            anchors.left: parent.left
+            anchors.right: settingsButton.left
+            anchors.rightMargin: Style.space(10)
+            anchors.verticalCenter: parent.verticalCenter
+            bar: root.bar
+            sourceKind: root.settingsOpen ? "settings" : root.sourceKind
+          }
+
+          ActionButton {
+            id: settingsButton
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            bar: root.bar
+            iconText: "󰒓"
+            tooltipText: root.settingsOpen ? "Back to the actions" : "Settings"
+            selected: root.settingsOpen
+            onClicked: root.toggleSettings()
+          }
         }
 
-        SourceField {
-          id: sourceField
+        SettingsView {
+          id: settingsView
           width: parent.width
-          enabled: !root.busy
+          visible: root.settingsOpen
           bar: root.bar
           panel: root
         }
 
-        PanelSeparator {
+        // Everything the panel is for. It keeps its state while the settings
+        // are up, so coming back finds the text and the result where they were.
+        Column {
           width: parent.width
-        }
+          visible: !root.settingsOpen
+          spacing: Style.space(10)
 
-        // The actions stay put once there is a result: picking the wrong one is
-        // the most likely thing to happen here, and the fix for it should be
-        // the same click as the mistake, not closing the panel and starting
-        // over. Every action runs against the captured text, never against the
-        // result of the last one.
-        // Three to a row, all one width: eight shipped actions plus Custom make
-        // a square, and a square is quicker to aim at than a ragged wrap.
-        Grid {
-          id: actionGrid
-          width: parent.width
-          columns: 3
-          spacing: Style.space(6)
-          readonly property real cellWidth: (width - spacing * (columns - 1)) / columns
+          SourceField {
+            id: sourceField
+            width: parent.width
+            enabled: !root.busy
+            bar: root.bar
+            panel: root
+          }
 
-          Repeater {
-            id: presetRepeater
-            model: root.presets
+          PanelSeparator {
+            width: parent.width
+          }
+
+          // The actions stay put once there is a result: picking the wrong one is
+          // the most likely thing to happen here, and the fix for it should be
+          // the same click as the mistake, not closing the panel and starting
+          // over. Every action runs against the captured text, never against the
+          // result of the last one.
+          // Three to a row, all one width: eight shipped actions plus Custom make
+          // a square, and a square is quicker to aim at than a ragged wrap.
+          Grid {
+            id: actionGrid
+            width: parent.width
+            columns: 3
+            spacing: Style.space(6)
+            readonly property real cellWidth: (width - spacing * (columns - 1)) / columns
+
+            Repeater {
+              id: presetRepeater
+              model: root.presets
+
+              ActionButton {
+                required property var modelData
+                required property int index
+                bar: root.bar
+                width: actionGrid.cellWidth
+                text: modelData.label
+                // The digit is what Alt runs, so it is worth more than a glyph
+                // sitting next to a label that already says the same thing. Past
+                // the ninth there is no shortcut to advertise, so those keep
+                // their icon.
+                digit: index < 9 ? String(index + 1) : ""
+                iconText: index < 9 ? "" : (modelData.icon || "")
+                enabled: !root.busy && root.workingText !== ""
+                selected: root.pending === modelData.id && (root.busy || root.result !== "")
+                onClicked: root.ask(modelData.id, "")
+              }
+            }
 
             ActionButton {
-              required property var modelData
-              required property int index
+              id: customButton
               bar: root.bar
               width: actionGrid.cellWidth
-              text: modelData.label
-              // The digit is what Alt runs, so it is worth more than a glyph
-              // sitting next to a label that already says the same thing. Past
-              // the ninth there is no shortcut to advertise, so those keep
-              // their icon.
-              digit: index < 9 ? String(index + 1) : ""
-              iconText: index < 9 ? "" : (modelData.icon || "")
+              text: "Custom"
+              digit: root.customDigit
+              iconText: root.customDigit !== "" ? "" : "󰏫"
               enabled: !root.busy && root.workingText !== ""
-              selected: root.pending === modelData.id && (root.busy || root.result !== "")
-              onClicked: root.ask(modelData.id, "")
+              selected: root.customOpen
+              onClicked: root.toggleCustom()
             }
           }
 
-          ActionButton {
-            id: customButton
+          PromptField {
+            id: promptField
+            width: parent.width
+            visible: root.customOpen
+            enabled: root.workingText !== "" && !root.busy
+            placeholderText: root.result === "" ? "Or say what to do with it" : "Ask for another pass"
             bar: root.bar
-            width: actionGrid.cellWidth
-            text: "Custom"
-            digit: root.customDigit
-            iconText: root.customDigit !== "" ? "" : "󰏫"
-            enabled: !root.busy && root.workingText !== ""
-            selected: root.customOpen
-            onClicked: root.toggleCustom()
-          }
-        }
-
-        PromptField {
-          id: promptField
-          width: parent.width
-          visible: root.customOpen
-          enabled: root.workingText !== "" && !root.busy
-          placeholderText: root.result === "" ? "Or say what to do with it" : "Ask for another pass"
-          bar: root.bar
-          panel: root
-        }
-
-        Text {
-          width: parent.width
-          visible: root.busy
-          text: root.presetLabel(root.pending) + "…"
-          color: root.bar.foreground
-          font.family: root.bar.fontFamily
-          font.pixelSize: Style.font.body
-
-          SequentialAnimation on opacity {
-            running: root.busy
-            loops: Animation.Infinite
-            NumberAnimation { from: 1.0; to: 0.4; duration: 700; easing.type: Easing.InOutSine }
-            NumberAnimation { from: 0.4; to: 1.0; duration: 700; easing.type: Easing.InOutSine }
-          }
-        }
-
-        ResultView {
-          width: parent.width
-          visible: root.result !== ""
-          bar: root.bar
-          body: root.result
-        }
-
-        Text {
-          width: parent.width
-          visible: root.errorText !== ""
-          text: root.errorText
-          color: Color.error !== undefined ? Color.error : root.bar.foreground
-          font.family: root.bar.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.Wrap
-        }
-
-        Row {
-          spacing: Style.space(6)
-          visible: root.result !== ""
-
-          ActionButton {
-            id: replaceButton
-            bar: root.bar
-            text: "Replace"
-            iconText: "󰆐"
-            // Compose mode never recorded a window, so there is nowhere to
-            // paste back to and Copy is the only sensible exit.
-            visible: !root.manual
-            onClicked: root.apply()
+            panel: root
           }
 
-          ActionButton {
-            id: copyButton
-            bar: root.bar
-            text: "Copy"
-            iconText: "󰆏"
-            onClicked: {
-              copyProc.command = ["wl-copy", "--", root.result]
-              copyProc.running = true
-              root.close()
+          Text {
+            width: parent.width
+            visible: root.busy
+            text: root.presetLabel(root.pending) + "…"
+            color: root.bar.foreground
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.body
+
+            SequentialAnimation on opacity {
+              running: root.busy
+              loops: Animation.Infinite
+              NumberAnimation { from: 1.0; to: 0.4; duration: 700; easing.type: Easing.InOutSine }
+              NumberAnimation { from: 0.4; to: 1.0; duration: 700; easing.type: Easing.InOutSine }
             }
           }
 
-          ActionButton {
-            id: againButton
+          ResultView {
+            width: parent.width
+            visible: root.result !== ""
             bar: root.bar
-            text: "Again"
-            iconText: "󰑖"
-            onClicked: root.retry()
+            body: root.result
+          }
+
+          Text {
+            width: parent.width
+            visible: root.errorText !== ""
+            // The agent's stderr, which can quote the captured text back.
+            textFormat: Text.PlainText
+            text: root.errorText
+            color: Color.error !== undefined ? Color.error : root.bar.foreground
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.Wrap
+          }
+
+          Row {
+            spacing: Style.space(6)
+            visible: root.result !== ""
+
+            ActionButton {
+              id: replaceButton
+              bar: root.bar
+              text: "Replace"
+              iconText: "󰆐"
+              // Compose mode never recorded a window, so there is nowhere to
+              // paste back to and Copy is the only sensible exit.
+              visible: !root.manual
+              onClicked: root.apply()
+            }
+
+            ActionButton {
+              id: copyButton
+              bar: root.bar
+              text: "Copy"
+              iconText: "󰆏"
+              onClicked: {
+                copyProc.command = ["wl-copy", "--", root.result]
+                copyProc.running = true
+                root.close()
+              }
+            }
+
+            ActionButton {
+              id: againButton
+              bar: root.bar
+              text: "Again"
+              iconText: "󰑖"
+              onClicked: root.retry()
+            }
           }
         }
       }

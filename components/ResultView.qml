@@ -15,6 +15,10 @@ Flickable {
   Text {
     id: text
     width: root.width
+    // The rewrite is made from text captured off the screen, so it is drawn as
+    // written. Left to guess, Qt reads markup in it as rich text, and an <img>
+    // tag in there loads whatever it points at.
+    textFormat: Text.PlainText
     text: root.body
     color: root.bar.foreground
     font.family: root.bar.fontFamily
