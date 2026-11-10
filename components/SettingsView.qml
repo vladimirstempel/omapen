@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -17,23 +18,124 @@ Column {
   readonly property string agent: String(panel.setting("agent", "System default"))
   readonly property string savedModel: String(panel.setting("model", ""))
 
+
+  // The ids the selected agent can run, from `omapen models`. Empty means the
+  // agent has no list, and the model is then typed into a field.
+  property var models: []
+  property bool loadingModels: false
+  // The model is one the list does not have, so it is typed by hand.
+  property bool customModel: false
+  // The list entry that opens the field. No agent has a model with this id.
+  readonly property string otherModel: "\u0000other"
+  readonly property var modelOptions: {
+    var options = [{ value: "", label: "The agent's default" }]
+    for (var i = 0; i < models.length; i++) options.push(models[i])
+    options.push({ value: otherModel, label: "Other..." })
+    return options
+  }
+
   // In the order Tab walks them.
-  readonly property var stops: [agentGroup, modelField, resultGroup, captureToggle, widthField.field]
+  readonly property var stops: {
+    var ring = [agentGroup]
+    if (modelPicker.visible) ring.push(modelPicker)
+    if (modelField.visible) ring.push(modelField)
+    ring.push(resultGroup, captureToggle, widthField.field)
+    return ring
+  }
   // A focused control here owns its keys: h and l walk a group, and digits are
   // typed into a field. The panel's key catcher stands down while one has it.
+  // An open list counts too: its search field is outside the focus ring.
   readonly property bool editing: {
+    if (modelDropdown.popupOpen) return true
     for (var i = 0; i < stops.length; i++) if (stops[i].activeFocus) return true
     return false
   }
 
   spacing: Style.space(10)
 
-  onSavedModelChanged: modelField.text = savedModel
-  Component.onCompleted: modelField.text = savedModel
+  onSavedModelChanged: syncModel()
+  onCustomModelChanged: syncModel()
+  onAgentChanged: loadModels()
+  // Each time the settings open: a model pulled since the last look is there.
+  onVisibleChanged: if (visible) loadModels()
+  Component.onCompleted: {
+    syncModel()
+    if (visible) loadModels()
+  }
+
+  // The list writes its own value when a row is picked, which ends a binding.
+  // So the value is set by hand, here.
+  function syncModel() {
+    modelField.text = savedModel
+    modelDropdown.value = customModel ? otherModel : savedModel
+  }
 
   function saveModel() {
     var model = modelField.text.trim()
     if (model !== root.savedModel) panel.persistSettings({ model: model })
+  }
+
+  function loadModels() {
+    // A run for another agent is still out. Its exit starts this one.
+    if (modelsProc.running) return
+    modelsProc.agent = root.agent
+    modelsProc.command = [panel.cli, "models", root.agent]
+    root.models = []
+    root.customModel = false
+    root.loadingModels = true
+    modelsProc.running = true
+  }
+
+  function pickModel(value) {
+    if (value === otherModel) {
+      root.customModel = true
+      Qt.callLater(function () { modelField.forceActiveFocus() })
+      return
+    }
+    root.customModel = false
+    if (value !== root.savedModel) panel.persistSettings({ model: value })
+    syncModel()
+  }
+
+  // The first thing under an item that Tab can stop on. The list keeps its
+  // trigger to itself, and that is the part that has to hold the focus.
+  function tabStop(item) {
+    for (var i = 0; i < item.children.length; i++) {
+      var child = item.children[i]
+      if (child.activeFocusOnTab) return child
+      var deeper = tabStop(child)
+      if (deeper) return deeper
+    }
+    return null
+  }
+
+  Process {
+    id: modelsProc
+    property string agent: ""
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        if (modelsProc.agent !== root.agent) return
+        var lines = String(text || "").split("\n")
+        var ids = []
+        for (var i = 0; i < lines.length; i++) {
+          var id = lines[i].trim()
+          if (id !== "") ids.push(id)
+        }
+        root.models = ids
+        // A saved model the list does not have was typed by hand, and one
+        // with no list at all goes in the field anyway.
+        root.customModel = ids.length > 0 && root.savedModel !== "" && ids.indexOf(root.savedModel) < 0
+        root.syncModel()
+      }
+    }
+    onExited: {
+      if (modelsProc.agent !== root.agent) {
+        root.loadModels()
+        return
+      }
+      root.loadingModels = false
+    }
   }
 
   // The key catcher is blocked while a control here has focus, so the keys
@@ -86,13 +188,40 @@ Column {
 
   Caption { text: "Model" }
 
+  // Holds the focus ring's place for the list, and hands the focus on to the
+  // list's own trigger, which is what opens it on Return.
+  FocusScope {
+    id: modelPicker
+    width: root.width
+    height: modelDropdown.implicitHeight
+    visible: root.loadingModels || root.models.length > 0
+    onActiveFocusChanged: {
+      if (!activeFocus) return
+      var trigger = root.tabStop(modelDropdown)
+      if (trigger && !trigger.activeFocus) trigger.forceActiveFocus()
+    }
+
+    SearchableDropdown {
+      id: modelDropdown
+      width: parent.width
+      showLabel: false
+      options: root.modelOptions
+      placeholderText: "Search models"
+      emptyText: "No model matches"
+      foreground: root.bar.foreground
+      fontFamily: root.bar.fontFamily
+      onChanged: function (value) { root.pickModel(value) }
+    }
+  }
+
   TextField {
     id: modelField
+    visible: !modelPicker.visible || root.customModel
     width: root.width
     foreground: root.bar.foreground
     font.family: root.bar.fontFamily
     font.pixelSize: Style.font.body
-    placeholderText: "The agent's default"
+    placeholderText: root.customModel ? "A model id" : "The agent's default"
     onEditingFinished: root.saveModel()
   }
 
