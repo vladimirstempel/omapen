@@ -9,7 +9,8 @@ Item {
 
   readonly property string badge: ({
     selection: "SELECTION",
-    manual: "YOUR TEXT"
+    manual: "YOUR TEXT",
+    settings: "SETTINGS"
   })[root.sourceKind] || ""
 
   implicitHeight: title.implicitHeight

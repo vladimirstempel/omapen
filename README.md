@@ -168,12 +168,13 @@ Nothing here needs a pointer.
 
 | Key | What it does |
 |---|---|
-| `Tab` / `Shift+Tab` | Move through the text, the nine actions, the `Custom` prompt while it is open, and the buttons under a result |
+| `Tab` / `Shift+Tab` | Move through the text, the nine actions, the `Custom` prompt while it is open, the buttons under a result, and the settings gear |
 | `←` `→` `↑` `↓`, or `h` `j` `k` `l` | The same ring, once focus has left the text field |
 | `Return` | Run the focused action, or the instruction typed into `Custom`. Inside the text you are working on it breaks the line |
 | `Alt+1` … `Alt+9` | Run that action from anywhere, mid-sentence included. Each action is labelled with its own digit, so there is nothing to memorise. The last digit toggles `Custom` |
 | `Ctrl+Return` | Paste the result back over the selection |
-| `Esc` | Close |
+| `Return`, once a result is in | Focus is already on `Replace`, or on `Copy` when you typed the text yourself, so this uses the result |
+| `Esc` | Close. In the settings, go back to the actions |
 
 Focus is drawn as a ring in the theme's accent colour. The field keeps every
 key while it has focus, so `j` and `k` are typed rather than moving the cursor:
@@ -264,8 +265,12 @@ echo 'OLLAMA_HOST=192.168.1.10:11434' >> ~/.config/environment.d/omapen.conf
 
 ## Settings
 
-Settings live inline on the widget's entry in `~/.config/omarchy/shell.json`.
-Edit them there, or with the bar CLI, which writes the same place:
+The gear in the top right corner of the panel opens them, in place of the
+actions. A change is saved as you make it and applies to the next run. The gear
+again, or `Esc`, goes back to the actions with your text where you left it.
+
+They are stored inline on the widget's entry in `~/.config/omarchy/shell.json`.
+The bar CLI writes the same place, for a script or a dotfiles repo:
 
 ```bash
 omarchy bar set omapen model haiku      # or opus, sonnet, a full model id
