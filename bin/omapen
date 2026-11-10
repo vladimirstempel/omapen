@@ -244,6 +244,25 @@ resolve_agent() {
   omarchy-default-agent 2>/dev/null
 }
 
+# The ids the settings offer in the Model list, one on a line, each in the form
+# the agent takes after --model. No output means there is no list to offer, and
+# the panel then shows a field to type an id into.
+list_models() {
+  local agent="${1:-}"
+  # The settings hand over the agent that is selected, which may not be saved
+  # yet. "System default" is whatever Setup points at today.
+  [[ -n $agent && $agent != "System default" ]] || agent=$(omarchy-default-agent 2>/dev/null)
+  case "$agent" in
+    # claude has no command that lists models. These aliases follow the newest
+    # model of each size, so the list does not go stale.
+    claude) printf '%s\n' haiku sonnet opus ;;
+    pi) pi --list-models 2>/dev/null | awk 'NR > 1 && NF >= 2 { print $1 "/" $2 }' ;;
+    omp) omp models --json 2>/dev/null | jq -r '.models[]?.selector // empty' 2>/dev/null ;;
+    ollama) ollama list 2>/dev/null | awk 'NR > 1 && NF { print $1 }' ;;
+  esac
+  return 0
+}
+
 # Rewriting a paragraph is the cheapest thing an agent will ever be asked to do,
 # so each agent gets its small fast model unless the Model setting names another
 # one.
@@ -505,6 +524,13 @@ selftest() {
     [[ -z $out ]] || die "selftest: $refused was not refused: $out"
   done
 
+  # A list of models is only ever ids, one on a line. An agent with no list
+  # prints nothing, which is what tells the panel to show a field instead.
+  out=$(list_models claude | tr '\n' ' ')
+  [[ $out == "haiku sonnet opus " ]] || die "selftest: claude model list wrong: $out"
+  out=$(list_models someagent)
+  [[ -z $out ]] || die "selftest: an unknown agent listed models: $out"
+
   # Settings come off the live shell.json, so assert the shape rather than a
   # value: a missing key must fall back, a present one must win.
   out=$(setting definitelyNotAKey "fallback")
@@ -684,10 +710,11 @@ case "${1:-}" in
   settext) shift; settext "${1:-}" ;;
   edittext) shift; edittext "${1:-}" ;;
   run) shift; run "$@" ;;
+  models) shift; list_models "${1:-}" ;;
   insert) shift; insert "$@" ;;
   selftest) selftest ;;
   *)
-    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text> | edittext <text> | run <preset|-> [prompt] | insert [-] | selftest" >&2
+    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text> | edittext <text> | run <preset|-> [prompt] | models [agent] | insert [-] | selftest" >&2
     exit 1
     ;;
 esac

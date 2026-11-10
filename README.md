@@ -294,7 +294,7 @@ omarchy bar set omapen model ""         # back to the small fast default
 | Setting | Default | What it does |
 |---|---|---|
 | Agent | System default | Follows `omarchy default agent`, or names one to use instead. Only claude, pi, omp and ollama are accepted. |
-| Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. Passed to the agent as its model flag. Empty gives claude `haiku`, which is the right size for a rewrite, gives ollama your most recent pull, and leaves pi and omp on whatever your own provider config already defaults to. |
+| Model | empty | Cleared automatically when you change agent, since a model id belongs to the provider it came from. In the panel it is a list of the models the agent has, from `omapen models`, with `Other...` to type an id the list does not have. Passed to the agent as its model flag. Empty gives claude `haiku`, which is the right size for a rewrite, gives ollama your most recent pull, and leaves pi and omp on whatever your own provider config already defaults to. |
 | What to do with the result | Show in panel | Or replace the selection: focuses the window the text came from and pastes over it. |
 | Read the focused window | on | Sends the window a Ctrl+C, which is what tells an empty selection apart from an old one. Off reads the primary selection instead, which is the last thing highlighted anywhere rather than the selection in front of you. |
 | Panel width | 540 | In the shell's spacing units. |
