@@ -331,6 +331,10 @@ symlinked plugin directory, so an out-of-tree checkout needs
 settings reader, the compose session and the run path. The compositor parts (focus, paste, the
 Ctrl+A fallback) need a session and are checked by hand.
 
+## Support
+
+OmaPen is free. If it saves you time, you can [buy me a coffee](https://buymeacoffee.com/stempelv).
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
