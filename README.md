@@ -1,5 +1,7 @@
 # OmaPen
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/stempelv)
+
 Rewrite whatever text you have selected, without leaving the window you are in.
 "Help me write" in Chrome, Writing Tools on macOS, the rewrite menu in Teams and
 Word: the same idea on Omarchy, using the coding agent Omarchy already knows
@@ -335,10 +337,6 @@ symlinked plugin directory, so an out-of-tree checkout needs
 `bin/omapen selftest` covers the prompt building, the agent command table, the
 settings reader, the compose session and the run path. The compositor parts (focus, paste, the
 Ctrl+A fallback) need a session and are checked by hand.
-
-## Support
-
-OmaPen is free. If it saves you time, you can [buy me a coffee](https://buymeacoffee.com/stempelv).
 
 ## License
 
