@@ -327,6 +327,7 @@ echo "..." | bin/omapen edittext -      # the same, with the text on stdin
 echo "make it rhyme" | bin/omapen run - -
 bin/omapen insert               # paste the last result back where it came from
 bin/omapen insert -             # or paste whatever is piped in
+bin/omapen paste                # the clipboard as text, within the limit
 bin/omapen selftest             # the whole chain against a fake agent, no tokens spent
 ```
 
@@ -351,10 +352,15 @@ the bytes are kept anywhere, and each read has a time after which it stops.
 | A list of models | 256 KiB | 10 s |
 | The selection, off the clipboard | 256 KiB | 0.5 s a read |
 | The clipboard, kept to be put back | 32 MiB | 2 s |
+| A paste into a field of the panel | 256 KiB | 2 s |
 
 Text over the limit is refused, not cut: half a document rewritten is worse
 than none. A clipboard that is too large to keep is left alone, so the panel
 opens empty and `Replace` pastes nothing, and `Copy` still works.
+
+A paste into the panel does not use Qt's own paste, which reads the whole
+clipboard and waits for its owner. `Ctrl+V`, `Shift+Insert` and the middle
+button all go through `omapen paste`, and the field's own menu is off.
 
 A run that is cancelled stops its agent, and a run that ends in any way removes
 its files. A capture or a paste that stops in the middle puts the clipboard

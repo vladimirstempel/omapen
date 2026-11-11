@@ -712,6 +712,22 @@ insert() {
   clipboard_restore
 }
 
+# --------------------------------------------------------------- paste
+
+# The clipboard as text, for a field of the panel. The panel asks here instead
+# of letting Qt paste, because Qt reads the whole clipboard and waits for its
+# owner without end. Only text is given: an image is not something to type.
+paste() {
+  local where=() text
+  [[ ${1:-} == "--primary" ]] && where=(--primary)
+  deadline "$CLIPBOARD_SECONDS" wl-paste "${where[@]}" --list-types 2>/dev/null |
+    head -c 4096 | grep -qi '^text/' || return 0
+  text=$(read_text "$CLIPBOARD_SECONDS" wl-paste "${where[@]}" --no-newline)
+  (( $? == TOO_LARGE )) &&
+    die "the clipboard holds more than $((MAX_TEXT_BYTES / 1024)) KiB of text, so it was not pasted"
+  printf '%s' "$text"
+}
+
 # --------------------------------------------------------------- selftest
 
 selftest() {
@@ -806,6 +822,18 @@ selftest() {
     press_until_copied 200
     (( $? == TOO_LARGE ))
   ) || die "selftest: a selection with no end was not refused"
+
+  # A paste into the panel is text within the limit, or nothing.
+  (
+    deadline() { shift; "$@"; }
+    wl-paste() { case " $* " in *" --list-types "*) printf 'text/plain\n' ;; *) printf 'pasted' ;; esac; }
+    [[ $(paste) == pasted ]] || exit 1
+    wl-paste() { case " $* " in *" --list-types "*) printf 'image/png\n' ;; *) printf 'PNG' ;; esac; }
+    [[ -z $(paste) ]] || exit 1
+    wl-paste() { case " $* " in *" --list-types "*) printf 'text/plain\n' ;; *) yes ;; esac; }
+    ( paste ) >/dev/null 2>&1 && exit 1
+    exit 0
+  ) || die "selftest: a paste into the panel was not held to text within the limit"
 
   # Every reader stops at its limit and at its time.
   out=$(read_text 5 printf 'short')
@@ -1050,9 +1078,10 @@ case "${1:-}" in
   run) shift; run "$@" ;;
   models) shift; list_models "${1:-}" ;;
   insert) shift; insert "$@" ;;
+  paste) shift; paste "${1:-}" ;;
   selftest) selftest ;;
   *)
-    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text|-> | edittext <text|-> | run <preset|-> [prompt|-] | models [agent] | insert [-] | selftest" >&2
+    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text|-> | edittext <text|-> | run <preset|-> [prompt|-] | models [agent] | insert [-] | paste [--primary] | selftest" >&2
     exit 1
     ;;
 esac

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls as Controls
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -222,6 +223,12 @@ Column {
     font.family: root.bar.fontFamily
     font.pixelSize: Style.font.body
     placeholderText: root.customModel ? "A model id" : "The agent's default"
+    maximumLength: 256
+    readonly property bool singleLine: true
+    // Qt's own paste is closed, and a paste goes through the panel.
+    Controls.ContextMenu.menu: null
+    PasteGuard { input: modelField; panel: root.panel }
+    Keys.onPressed: function (event) { if (root.panel.pasteKey(event, modelField)) event.accepted = true }
     onEditingFinished: root.saveModel()
   }
 
