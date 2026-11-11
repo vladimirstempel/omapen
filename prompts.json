@@ -9,13 +9,13 @@
     "id": "rewrite",
     "label": "Rewrite",
     "icon": "󰑖",
-    "instruction": "Rewrite this so it reads better. Keep the meaning, the voice and roughly the length."
+    "instruction": "Rewrite this so it reads better: say the same thing with different wording and a different sentence structure. Never return the text as it is, however good it already is. Keep the meaning, the voice and roughly the length."
   },
   {
     "id": "shorten",
     "label": "Shorten",
     "icon": "󰦕",
-    "instruction": "Cut this down. Keep every point that carries information, drop the rest. Do not add anything."
+    "instruction": "Cut this down so it has clearly fewer words than the original, also when it is already short. Keep every point that carries information, drop the rest, and start with a full sentence. Do not add anything."
   },
   {
     "id": "elaborate",
@@ -27,13 +27,13 @@
     "id": "formal",
     "label": "More formal",
     "icon": "󰛡",
-    "instruction": "Rewrite this in a professional register. No slang, no contractions, no stiffness either."
+    "instruction": "Rewrite this in a professional register, with the wording a formal letter uses, so it reads differently from the original. No slang, no contractions, no stiffness either."
   },
   {
     "id": "casual",
     "label": "More casual",
     "icon": "󰊤",
-    "instruction": "Rewrite this the way you would say it to a colleague. Plain, warm, not sloppy."
+    "instruction": "Rewrite this the way you would say it to a colleague, with the wording of everyday talk, so it reads differently from the original. Plain, warm, not sloppy."
   },
   {
     "id": "bullets",
