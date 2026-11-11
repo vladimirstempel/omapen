@@ -32,6 +32,9 @@ Panel {
   property string sourceKind: ""
   property string result: ""
   property string errorText: ""
+  // The same number as MAX_TEXT_BYTES in bin/omapen. Characters here and bytes
+  // there, so the helper is the one that has the last word.
+  readonly property int maxTextLength: 262144
   property string pending: ""      // preset id or "-" while a run is in flight
   readonly property bool busy: runProc.running
   readonly property bool replaceMode: root.setting("resultMode", "Show in panel") === "Replace the selection"
@@ -187,6 +190,37 @@ Panel {
   // Alt and a digit runs an action from wherever you are, mid-sentence
   // included. Eight actions is more than anyone wants to walk a Tab ring for
   // the one they use every time, and Alt leaves the digits themselves typable.
+  // The paste key in a field of this panel. Qt's own paste reads the whole
+  // clipboard and waits for its owner without end, so the key is taken here
+  // and the text comes through `omapen paste`, which has a limit and a
+  // deadline.
+  function pasteKey(event, input) {
+    if (!event.matches(StandardKey.Paste)) return false
+    root.paste(input, false)
+    return true
+  }
+
+  function paste(input, primary) {
+    if (pasteProc.running) return
+    pasteProc.target = input
+    pasteProc.command = primary ? [root.cli, "paste", "--primary"] : [root.cli, "paste"]
+    pasteProc.running = true
+  }
+
+  function pasted(text) {
+    var input = pasteProc.target
+    pasteProc.target = null
+    if (!input || text === "") return
+    if (input.singleLine) text = text.replace(/\s*\n\s*/g, " ")
+    if (input.selectionStart !== input.selectionEnd) input.remove(input.selectionStart, input.selectionEnd)
+    var room = (input.maximumLength > 0 ? input.maximumLength : root.maxTextLength) - input.length
+    if (text.length > room) {
+      root.errorText = "That is more text than this field takes, so it was not pasted"
+      return
+    }
+    input.insert(input.cursorPosition, text)
+  }
+
   function presetShortcut(event) {
     if (!(event.modifiers & Qt.AltModifier)) return false
     var n = event.key - Qt.Key_1
@@ -279,9 +313,34 @@ Panel {
 
   StdinProcess {
     id: setTextProc
+    // The helper says why it refused, for one: text over its limit.
+    stderr: StdioCollector { id: setTextError; waitForEnd: true }
     onExited: function (exitCode) {
-      if (exitCode === 0) runProc.send(runProc.input)
-      else root.errorText = "Could not hand the text over (exit " + exitCode + ")"
+      if (exitCode === 0) {
+        runProc.send(runProc.input)
+        return
+      }
+      var why = String(setTextError.text || "").trim().replace(/^omapen: /, "")
+      root.errorText = why !== "" ? why : "Could not hand the text over (exit " + exitCode + ")"
+    }
+  }
+
+  // Every stream collected in this file comes from bin/omapen, which stops
+  // each one at a size and at a time before it writes a byte here. That is
+  // where the limit is: a collector has no limit of its own.
+  Process {
+    id: pasteProc
+    property var target: null
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.pasted(String(text || ""))
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var why = String(text || "").trim().replace(/^omapen: /, "")
+        if (why !== "") root.errorText = why
+      }
     }
   }
 

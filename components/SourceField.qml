@@ -46,6 +46,12 @@ Flickable {
     font.family: root.bar.fontFamily
     font.pixelSize: Style.font.body
 
+    // Qt's own paste reads the whole clipboard, however large, and waits for
+    // its owner without end. So each way in is closed here and goes through
+    // the panel: the key below, the middle button, and the menu.
+    ContextMenu.menu: null
+    PasteGuard { input: input; panel: root.panel }
+
     leftPadding: Style.spacing.controlPaddingX + Border.left(borderSpec)
     rightPadding: Style.spacing.controlPaddingX + Border.right(borderSpec)
     topPadding: Style.spacing.inputPaddingY + Border.top(borderSpec)
@@ -63,7 +69,9 @@ Flickable {
     // line, and Tab is what moves on.
     Keys.onTabPressed: function (event) { event.accepted = true; root.panel.moveFocus(1) }
     Keys.onBacktabPressed: function (event) { event.accepted = true; root.panel.moveFocus(-1) }
-    Keys.onPressed: function (event) { if (root.panel.presetShortcut(event)) event.accepted = true }
+    Keys.onPressed: function (event) {
+      if (root.panel.pasteKey(event, input) || root.panel.presetShortcut(event)) event.accepted = true
+    }
     Keys.onEscapePressed: function (event) {
       event.accepted = true
       root.panel.close()

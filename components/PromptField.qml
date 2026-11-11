@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls as Controls
 import qs.Commons
 import qs.Ui
 
@@ -14,11 +15,21 @@ TextField {
   font.family: bar.fontFamily
   font.pixelSize: Style.font.body
 
+  // An instruction, not a document.
+  maximumLength: 16384
+  // One line: a pasted line break becomes a space.
+  readonly property bool singleLine: true
+  // Qt's own paste is closed, the same as in the text field above it.
+  Controls.ContextMenu.menu: null
+  PasteGuard { input: root; panel: root.panel }
+
   // The key catcher is blocked while this field has focus, so the keys that
   // leave it are handled here.
   Keys.onTabPressed: function (event) { event.accepted = true; root.panel.moveFocus(1) }
   Keys.onBacktabPressed: function (event) { event.accepted = true; root.panel.moveFocus(-1) }
-  Keys.onPressed: function (event) { if (root.panel.presetShortcut(event)) event.accepted = true }
+  Keys.onPressed: function (event) {
+    if (root.panel.pasteKey(event, root) || root.panel.presetShortcut(event)) event.accepted = true
+  }
   // Return has to be swallowed here. Unaccepted it bubbles up to the key
   // catcher, which reads it as "activate" and closes the panel out from under
   // the run that just started. Ctrl+Return applies the result, so the whole

@@ -327,6 +327,7 @@ echo "..." | bin/omapen edittext -      # the same, with the text on stdin
 echo "make it rhyme" | bin/omapen run - -
 bin/omapen insert               # paste the last result back where it came from
 bin/omapen insert -             # or paste whatever is piped in
+bin/omapen paste                # the clipboard as text, within the limit
 bin/omapen selftest             # the whole chain against a fake agent, no tokens spent
 ```
 
@@ -334,10 +335,36 @@ The panel sends your text and your prompt on stdin, and the agent gets its
 prompt the same way. A command line is on show to every user on the machine
 while the process runs, so the text never goes on one.
 
-The agent runs headless, with every tool switched off, in an empty temporary
-directory: the tools are what keep your selection from turning into actions
+The agent runs headless, with every tool switched off, in an empty directory
+of its own inside the state directory: the tools are what keep your selection from turning into actions
 (see [Which agents are accepted](#which-agents-are-accepted)), and the empty directory
 keeps a stray project `CLAUDE.md` or repository out of the rewrite.
+
+### Limits
+
+Nothing is read without an end to it. Each limit is applied on the pipe, before
+the bytes are kept anywhere, and each read has a time after which it stops.
+
+| What | Size | Time |
+| --- | --- | --- |
+| The text, a prompt, the agent's answer | 256 KiB | 180 s for the agent, 10 s for stdin |
+| What a failing agent prints | 64 KiB, the rest is dropped | the same 180 s |
+| A list of models | 256 KiB | 10 s |
+| The selection, off the clipboard | 256 KiB | 0.5 s a read |
+| The clipboard, kept to be put back | 32 MiB | 2 s |
+| A paste into a field of the panel | 256 KiB | 2 s |
+
+Text over the limit is refused, not cut: half a document rewritten is worse
+than none. A clipboard that is too large to keep is left alone, so the panel
+opens empty and `Replace` pastes nothing, and `Copy` still works.
+
+A paste into the panel does not use Qt's own paste, which reads the whole
+clipboard and waits for its owner. `Ctrl+V`, `Shift+Insert` and the middle
+button all go through `omapen paste`, and the field's own menu is off.
+
+A run that is cancelled stops its agent, and a run that ends in any way removes
+its files. A capture or a paste that stops in the middle puts the clipboard
+back first.
 
 ## Development
 

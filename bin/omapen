@@ -21,6 +21,104 @@ RESULT="$STATE_DIR/result.txt"
 SHELL_JSON="$HOME/.config/omarchy/shell.json"
 USER_PROMPTS="${XDG_CONFIG_HOME:-$HOME/.config}/omapen/prompts.json"
 
+# ----------------------------------------------------------------- limits
+
+# Nothing is read without an end to it. Each transfer has a size it stops at
+# and a time it stops waiting at, and the size is applied on the pipe, before
+# the bytes are held anywhere: the reader closes its end at the limit, so the
+# producer cannot make this script hold more.
+MAX_TEXT_BYTES=262144          # the text, a prompt, and an answer: 256 KiB
+MAX_ERROR_BYTES=65536          # what a failing agent says about itself
+MAX_LIST_BYTES=262144          # a list of model ids
+MAX_CLIPBOARD_BYTES=33554432   # a clipboard kept to be put back: 32 MiB
+CLIPBOARD_SECONDS=2
+STDIN_SECONDS=10
+LIST_SECONDS=10
+# The test seam sets the first one, to prove the deadline without a long wait.
+AGENT_SECONDS=${OMAPEN_AGENT_SECONDS:-180}
+
+# Exit status for "more than the limit". 124 is the one timeout uses.
+TOO_LARGE=3
+
+# Run a command that is stopped when its time is up, and killed when it does
+# not stop.
+deadline() {
+  local seconds="$1"
+  shift
+  timeout --kill-after=2 "$seconds" "$@"
+}
+
+# Is the text within this many bytes. Bytes, not characters: a limit in
+# characters is four times as large in a text of emoji.
+fits() {
+  local LC_ALL=C
+  (( ${#2} <= $1 ))
+}
+
+# The output of a command as text: read for so long, and so far, and no more.
+read_text() {
+  local seconds="$1" data rc
+  shift
+  data=$(deadline "$seconds" "$@" 2>/dev/null | head -c "$((MAX_TEXT_BYTES + 1))"
+    exit "${PIPESTATUS[0]}")
+  rc=$?
+  fits "$MAX_TEXT_BYTES" "$data" || return "$TOO_LARGE"
+  printf '%s' "$data"
+  # A producer that head closed the pipe on did not fail, it was stopped.
+  (( rc == 124 || rc == 137 )) && return 124
+  return 0
+}
+
+# What is left behind when the script stops in the middle: files, a clipboard
+# that was taken to be put back, and an agent that is still out.
+SCRATCH=()
+CLIP_FILE=""
+CLIP_TYPE=""
+AGENT_PID=""
+cleanup() {
+  [[ -n $AGENT_PID ]] && kill "$AGENT_PID" 2>/dev/null
+  [[ -n $CLIP_FILE ]] && clipboard_restore
+  (( ${#SCRATCH[@]} > 0 )) && rm -rf "${SCRATCH[@]}"
+  return 0
+}
+trap cleanup EXIT
+trap 'exit 143' TERM INT HUP
+
+# Take the clipboard as it is, to put back later. It goes to a file because
+# Bash cannot hold a NUL byte: an image went in as 29 bytes of PNG and came
+# back out as 17 bytes of rubbish. A clipboard that is too large to keep, or
+# that does not answer in time, is a refusal: the caller then leaves the
+# clipboard alone, because what cannot be put back must not be replaced.
+clipboard_save() {
+  local file rc
+  file=$(mktemp -p "$STATE_DIR" clipboard.XXXXXX) || return 1
+  SCRATCH+=("$file")
+  local types
+  types=$(deadline "$CLIPBOARD_SECONDS" wl-paste --list-types 2>/dev/null | head -c 4096)
+  # Text is read and put back as text, so every text type is offered again.
+  # A browser lists a private type of its own first, and text put back under
+  # that name is text nothing can paste. Anything else keeps its one type.
+  CLIP_TYPE=""
+  grep -qi '^text/' <<<"$types" || CLIP_TYPE=$(head -n 1 <<<"$types")
+  deadline "$CLIPBOARD_SECONDS" wl-paste --no-newline ${CLIP_TYPE:+--type "$CLIP_TYPE"} 2>/dev/null |
+    head -c "$((MAX_CLIPBOARD_BYTES + 1))" >"$file"
+  rc=${PIPESTATUS[0]}
+  if (( rc == 124 || rc == 137 )) || (( $(stat -c %s "$file") > MAX_CLIPBOARD_BYTES )); then
+    rm -f "$file"
+    return 1
+  fi
+  CLIP_FILE=$file
+}
+
+clipboard_restore() {
+  local file=$CLIP_FILE
+  CLIP_FILE=""
+  [[ -n $file ]] || return 0
+  [[ -s $file ]] &&
+    deadline "$CLIPBOARD_SECONDS" wl-copy ${CLIP_TYPE:+--type "$CLIP_TYPE"} <"$file" 2>/dev/null
+  rm -f "$file"
+}
+
 # A directory that is really ours: a real directory, not a link to one, owned by
 # this user, and closed to everyone else. Anything else is refused before a
 # word of text is written into it.
@@ -34,8 +132,19 @@ ensure_state_dir() {
 # The text for settext, edittext and a free prompt. A lone "-" means it is on
 # stdin, which is how the panel sends it: an argument is on show to every user
 # on the machine for as long as the process runs.
+#
+# Stdin is read to the limit and for a set time, so a caller that never closes
+# it, or never stops writing, does not hold this script.
 text_argument() {
-  if [[ ${1:-} == "-" ]]; then cat; else printf '%s' "${1:-}"; fi
+  local text
+  if [[ ${1:-} == "-" ]]; then
+    text=$(timeout --foreground "$STDIN_SECONDS" head -c "$((MAX_TEXT_BYTES + 1))"
+      (( $? != 124 ))) || die "the text did not arrive within $STDIN_SECONDS seconds"
+  else
+    text="${1:-}"
+  fi
+  fits "$MAX_TEXT_BYTES" "$text" || die "the text is larger than $((MAX_TEXT_BYTES / 1024)) KiB"
+  printf '%s' "$text"
 }
 
 die() { echo "omapen: $*" >&2; exit 1; }
@@ -69,8 +178,8 @@ focus_lua() { printf "hl.dsp.focus({ window = 'address:%s' })" "$1"; }
 
 hypr_focus() {
   [[ -n $1 ]] || return 0
-  hyprctl dispatch "$(focus_lua "$1")" >/dev/null 2>&1 ||
-    hyprctl dispatch focuswindow "address:$1" >/dev/null 2>&1
+  deadline 2 hyprctl dispatch "$(focus_lua "$1")" >/dev/null 2>&1 ||
+    deadline 2 hyprctl dispatch focuswindow "address:$1" >/dev/null 2>&1
 }
 
 # Keystrokes go through wtype rather than Hyprland's send_shortcut, which
@@ -82,7 +191,7 @@ hypr_focus() {
 # each press is what keeps that from happening, so do not trim it.
 press() {
   command -v wtype >/dev/null || die "wtype is not installed"
-  wtype -M ctrl -k "$1" -m ctrl
+  deadline 2 wtype -M ctrl -k "$1" -m ctrl
   sleep 0.15
 }
 
@@ -128,8 +237,13 @@ press_until_copied() {
     # Only text is a selection worth rewriting. Whatever else sits on the
     # clipboard is somebody's image, and reading it as a sentence is how binary
     # rubbish reached the panel.
-    if wl-paste --list-types 2>/dev/null | grep -qi '^text/'; then
-      text=$(wl-paste --no-newline 2>/dev/null)
+    # Each read has its own short deadline. A clipboard owner that does not
+    # answer would hold the read, and the budget below is only looked at
+    # between reads.
+    if deadline 0.5 wl-paste --list-types 2>/dev/null | head -c 4096 | grep -qi '^text/'; then
+      text=$(read_text 0.5 wl-paste --no-newline)
+      # A selection over the limit is not half-read. It is refused.
+      (( $? == TOO_LARGE )) && return "$TOO_LARGE"
       [[ -n $text ]] && { printf '%s' "$text"; return 0; }
     fi
     (( $(now) >= deadline )) && return 1
@@ -157,13 +271,13 @@ press_until_copied() {
 # text already on the clipboard is a paste the user can make themselves.
 capture() {
   ensure_state_dir
-  local active address class text source saved saved_type
+  local active address class text source too_large=0
   if [[ ${1:-} == "--if-stale" && -f $SESSION ]]; then
     local age=$(( $(date +%s) - $(stat -c %Y "$SESSION") ))
     ((age < 3)) && return 0
   fi
 
-  active=$(hyprctl activewindow -j 2>/dev/null)
+  active=$(deadline 2 hyprctl activewindow -j 2>/dev/null | head -c 65536)
   address=$(jq -r '.address // ""' <<<"$active")
   class=$(jq -r '.class // ""' <<<"$active")
 
@@ -177,29 +291,32 @@ capture() {
     return 0
   fi
 
-  # The clipboard gets cleared below to make "nothing was copied" legible, so
-  # it has to be handed back exactly as it was, through a file rather than a
-  # variable. Bash cannot hold a NUL byte: an image on the clipboard went in as
-  # 29 bytes of PNG and came back out as 17 bytes of octet-stream rubbish,
-  # which is to say opening the panel destroyed it. The restore goes on the way
-  # out rather than at the end of the branch, since a capture that dies in the
-  # middle must not take the clipboard with it.
-  saved=$(mktemp)
-  saved_type=$(wl-paste --list-types 2>/dev/null | head -1)
-  wl-paste --no-newline >"$saved" 2>/dev/null
-  trap '[[ -s $saved ]] && wl-copy ${saved_type:+--type "$saved_type"} <"$saved" 2>/dev/null; rm -f "$saved"' RETURN
   text=""
   source=""
 
   if [[ -n $address ]] && [[ $(setting captureFallback true) == "true" ]]; then
-    # Clearing first turns "did anything get copied" into a question the
-    # clipboard can answer by itself. Comparing against the previous contents
-    # instead called a real copy "nothing selected" whenever you happened to
-    # have that same sentence on the clipboard already.
-    wl-copy --clear 2>/dev/null
-    text=$(press_until_copied)
+    # The clipboard is cleared here, so it is taken first and put back on the
+    # way out, also when the capture stops in the middle. A clipboard that
+    # cannot be kept is left alone, and the panel opens empty.
+    if clipboard_save; then
+      # Clearing first turns "did anything get copied" into a question the
+      # clipboard can answer by itself. Comparing against the previous contents
+      # instead called a real copy "nothing selected" whenever you happened to
+      # have that same sentence on the clipboard already.
+      deadline "$CLIPBOARD_SECONDS" wl-copy --clear 2>/dev/null
+      text=$(press_until_copied)
+      (( $? == TOO_LARGE )) && too_large=1
+      clipboard_restore
+    else
+      echo "omapen: the clipboard is too large to put back, so the selection was not read" >&2
+    fi
   else
-    text=$(wl-paste --primary --no-newline 2>/dev/null)
+    text=$(read_text "$CLIPBOARD_SECONDS" wl-paste --primary --no-newline)
+    (( $? == TOO_LARGE )) && too_large=1
+  fi
+  if (( too_large )); then
+    echo "omapen: the selection is larger than $((MAX_TEXT_BYTES / 1024)) KiB, so it was not read" >&2
+    text=""
   fi
   [[ -n $text ]] && source="selection"
 
@@ -229,7 +346,9 @@ compose() {
 # agent reads the session file, never the popup.
 settext() {
   ensure_state_dir
-  text_argument "${1:-}" | jq -Rs '{text: ., source: "manual", address: ""}' >"$SESSION"
+  local text
+  text=$(text_argument "${1:-}") || exit 1
+  printf '%s' "$text" | jq -Rs '{text: ., source: "manual", address: ""}' >"$SESSION"
 }
 
 # The panel shows captured text in a field you can edit, so a run has to be
@@ -239,9 +358,11 @@ settext() {
 edittext() {
   ensure_state_dir
   [[ -s $SESSION ]] || { settext "${1:-}"; return; }
-  local tmp
-  tmp=$(mktemp)
-  text_argument "${1:-}" | jq -Rs --slurpfile session "$SESSION" '. as $text | $session[0] | .text = $text' >"$tmp" &&
+  local tmp text
+  text=$(text_argument "${1:-}") || exit 1
+  tmp=$(mktemp -p "$STATE_DIR" session.XXXXXX)
+  SCRATCH+=("$tmp")
+  printf '%s' "$text" | jq -Rs --slurpfile session "$SESSION" '. as $text | $session[0] | .text = $text' >"$tmp" &&
     mv "$tmp" "$SESSION"
 }
 
@@ -269,7 +390,7 @@ resolve_agent() {
     printf '%s' "$configured"
     return
   fi
-  omarchy-default-agent 2>/dev/null
+  deadline "$LIST_SECONDS" omarchy-default-agent 2>/dev/null | head -c 255
 }
 
 # The ids the settings offer in the Model list, one on a line, each in the form
@@ -279,14 +400,16 @@ list_models() {
   local agent="${1:-}"
   # The settings hand over the agent that is selected, which may not be saved
   # yet. "System default" is whatever Setup points at today.
-  [[ -n $agent && $agent != "System default" ]] || agent=$(omarchy-default-agent 2>/dev/null)
+  [[ -n $agent && $agent != "System default" ]] || agent=$(deadline "$LIST_SECONDS" omarchy-default-agent 2>/dev/null | head -c 255)
+  # Each of these is another program's output, so each one ends: at a time,
+  # and at a size.
   case "$agent" in
     # claude has no command that lists models. These aliases follow the newest
     # model of each size, so the list does not go stale.
     claude) printf '%s\n' haiku sonnet opus ;;
-    pi) pi --list-models 2>/dev/null | awk 'NR > 1 && NF >= 2 { print $1 "/" $2 }' ;;
-    omp) omp models --json 2>/dev/null | jq -r '.models[]?.selector // empty' 2>/dev/null ;;
-    ollama) ollama list 2>/dev/null | awk 'NR > 1 && NF { print $1 }' ;;
+    pi) deadline "$LIST_SECONDS" pi --list-models 2>/dev/null | head -c "$MAX_LIST_BYTES" | awk 'NR > 1 && NF >= 2 { print $1 "/" $2 }' ;;
+    omp) deadline "$LIST_SECONDS" omp models --json 2>/dev/null | head -c "$MAX_LIST_BYTES" | jq -r '.models[]?.selector // empty' 2>/dev/null ;;
+    ollama) deadline "$LIST_SECONDS" ollama list 2>/dev/null | head -c "$MAX_LIST_BYTES" | awk 'NR > 1 && NF { print $1 }' ;;
   esac
   return 0
 }
@@ -300,7 +423,7 @@ default_model() {
     # ollama has no default of its own: the model is an argument, not a flag,
     # and there is nothing to run without one. `ollama list` prints the newest
     # pull first, which is the one a person just set up.
-    ollama) ollama list 2>/dev/null | awk 'NR == 2 { print $1 }' ;;
+    ollama) deadline "$LIST_SECONDS" ollama list 2>/dev/null | head -c "$MAX_LIST_BYTES" | awk 'NR == 2 { print $1 }' ;;
   esac
 }
 
@@ -436,14 +559,25 @@ clean_error() {
   printf '%s\n' "$text" | head -6 | cut -c1-300
 }
 
+# Wait a short time for a file to be there.
+await_file() {
+  local tries
+  for (( tries = 0; tries < 40; tries++ )); do
+    [[ -e $1 ]] && return 0
+    sleep 0.05
+  done
+  return 1
+}
+
 # omapen run <preset-id|-> [free prompt when preset is -]
 run() {
   local preset="${1:-rewrite}" free="${2:-}" instruction text agent model
   text=$(jq -r '.text // ""' "$SESSION" 2>/dev/null)
   [[ -n $text ]] || die "nothing captured, run: omapen capture"
+  fits "$MAX_TEXT_BYTES" "$text" || die "the text is larger than $((MAX_TEXT_BYTES / 1024)) KiB"
 
   if [[ $preset == "-" ]]; then
-    instruction=$(text_argument "$free")
+    instruction=$(text_argument "$free") || exit 1
   else
     instruction=$(jq -r --arg id "$preset" '.[] | select(.id == $id) | .instruction' "$(prompts_file)")
   fi
@@ -454,38 +588,73 @@ run() {
   forget_model_on_agent_change "$agent"
   model=$(setting model "")
 
-  local prompt workdir
-  prompt=$(build_prompt "$instruction" "$text" "$agent")
-  # An empty working directory so no project CLAUDE.md, no repo, and no MCP
-  # config from wherever the shell happens to be running leaks into a rewrite.
-  workdir=$(mktemp -d)
-  trap 'rm -rf "$workdir"' RETURN
-
-  local out rc
+  local cmd=()
   if [[ -n ${OMAPEN_AGENT_CMD:-} ]]; then
     # Test seam: OMAPEN_AGENT_CMD=cat runs the whole chain without spending
-    # tokens. It replaces the agent only, and its output goes through the same
-    # cleaning and failure handling below, so that handling is what gets tested
-    # rather than bypassed.
-    out=$( cd "$workdir" && printf '%s' "$prompt" | eval "$OMAPEN_AGENT_CMD" 2>"$workdir/stderr" )
-    rc=$?
+    # tokens. It replaces the agent only. The limits, the cleaning and the
+    # failure handling below are the same ones, so they are what gets tested.
+    cmd=(bash -c "$OMAPEN_AGENT_CMD")
   else
     command -v "$agent" >/dev/null || die "$agent is not installed"
-
-    local cmd=()
     mapfile -t cmd < <(agent_command "$agent" "$model")
     # agent_command dies inside that subshell when an agent cannot be run with
     # its tools off. Its message is already on stderr; an empty array is how the
     # refusal arrives here.
     (( ${#cmd[@]} > 0 )) || return 1
     [[ $agent == claude ]] && cmd+=(--system-prompt "$SYSTEM_PROMPT")
-
-    # The prompt holds the text off your screen, so it goes in on stdin. Every
-    # agent here reads its prompt from there when it is given none as an
-    # argument, and an argument is on show to every user on the machine.
-    out=$( cd "$workdir" && printf '%s' "$prompt" | timeout 180 "${cmd[@]}" 2>"$workdir/stderr" )
-    rc=$?
   fi
+
+  # The agent's own directory is empty, so no project CLAUDE.md, no repo, and no
+  # MCP config from wherever the shell happens to be running leaks into a
+  # rewrite. The prompt and both streams are kept next to it, not in it.
+  ensure_state_dir
+  local prompt scratch
+  prompt=$(build_prompt "$instruction" "$text" "$agent")
+  scratch=$(mktemp -d -p "$STATE_DIR" run.XXXXXX) || die "could not make a directory for the run"
+  SCRATCH+=("$scratch")
+  mkdir "$scratch/cwd"
+  printf '%s' "$prompt" >"$scratch/prompt"
+
+  # The prompt holds the text off your screen, so it goes in on stdin. Every
+  # agent here reads its prompt from there when it is given none as an
+  # argument, and an argument is on show to every user on the machine.
+  #
+  # Both streams are cut on the pipe. The answer stops one byte over the limit,
+  # which is how "too large" is told from "exactly the limit", and the agent
+  # then writes to a closed pipe. The diagnostics are kept to their limit and
+  # the rest is thrown away, since an agent must not die of being talkative
+  # about a failure.
+  #
+  # The agent runs in the background and is waited for, because a wait is what
+  # a signal can interrupt: when the panel cancels, the agent is stopped too,
+  # and is not left to run to its deadline with nobody to read it.
+  (
+    cd "$scratch/cwd" || exit 1
+    exec timeout --kill-after=5 "$AGENT_SECONDS" "${cmd[@]}" <"$scratch/prompt" \
+      > >(head -c "$((MAX_TEXT_BYTES + 1))" >"$scratch/stdout"; : 2>/dev/null >"$scratch/stdout.done") \
+      2> >({ head -c "$MAX_ERROR_BYTES"; cat >/dev/null; } >"$scratch/stderr"; : 2>/dev/null >"$scratch/stderr.done")
+  ) &
+  AGENT_PID=$!
+  local out rc
+  wait "$AGENT_PID"
+  rc=$?
+  AGENT_PID=""
+  # The readers finish a moment after the agent does. They are not waited for
+  # without end: something the agent left running can hold a stream open.
+  await_file "$scratch/stdout.done"
+  await_file "$scratch/stderr.done"
+
+  if (( $(stat -c %s "$scratch/stdout" 2>/dev/null || echo 0) > MAX_TEXT_BYTES )); then
+    rm -rf "$scratch"
+    echo "The answer was larger than $((MAX_TEXT_BYTES / 1024)) KiB, so it was dropped" >&2
+    return 1
+  fi
+  if (( rc == 124 || rc == 137 )); then
+    rm -rf "$scratch"
+    echo "$agent did not answer within $AGENT_SECONDS seconds" >&2
+    return 124
+  fi
+  out=$(<"$scratch/stdout")
   out=$(extract_answer "$(printf '%s' "$out" | clean_output)")
 
   # An agent that failed did not produce a rewrite, whatever it left on stdout.
@@ -493,12 +662,14 @@ run() {
   # rather than letting them through as text to paste into a document.
   if (( rc != 0 )) || [[ -z $out ]]; then
     local detail
-    detail=$(clean_error <"$workdir/stderr")
+    detail=$(clean_error <"$scratch/stderr")
     [[ -n $detail ]] || detail=$(printf '%s' "$out" | clean_error)
     [[ -n $detail ]] || detail="$agent produced nothing"
+    rm -rf "$scratch"
     printf '%s\n' "$detail" >&2
     return $(( rc == 0 ? 1 : rc ))
   fi
+  rm -rf "$scratch"
 
   # Kept on disk as well so `insert` has something to paste without the result
   # having to travel back through the caller.
@@ -511,16 +682,25 @@ run() {
 # first: the panel took focus when it opened, and a client that is not focused
 # is not allowed to read the clipboard, so the paste would arrive empty.
 insert() {
-  local text address saved
+  local text address
   # Only `insert -` reads stdin. Reading it by default hangs the moment the
   # caller is a process that leaves its own stdin open, which the shell does.
-  if [[ ${1:-} == "-" ]]; then text=$(cat); else text=$(cat "$RESULT" 2>/dev/null); fi
+  if [[ ${1:-} == "-" ]]; then
+    text=$(text_argument -) || exit 1
+  else
+    text=$(head -c "$((MAX_TEXT_BYTES + 1))" "$RESULT" 2>/dev/null)
+    fits "$MAX_TEXT_BYTES" "$text" || die "the result is larger than $((MAX_TEXT_BYTES / 1024)) KiB"
+  fi
   [[ -n ${text:-} ]] || die "nothing to insert"
   address=$(jq -r '.address // ""' "$SESSION" 2>/dev/null)
   [[ -n $address ]] || die "no window recorded, run: omapen capture"
-  saved=$(wl-paste --no-newline 2>/dev/null)
+  # The paste goes through the clipboard, so the clipboard is taken first and
+  # put back after, also when this stops in the middle. One that cannot be
+  # kept is not replaced: the result stays in the panel, where Copy is.
+  ensure_state_dir
+  clipboard_save || die "the clipboard is too large to put back, so nothing was pasted"
 
-  printf '%s' "$text" | wl-copy
+  printf '%s' "$text" | deadline "$CLIPBOARD_SECONDS" wl-copy
   hypr_focus "$address"
   sleep 0.25
   press v
@@ -529,13 +709,34 @@ insert() {
   # the receiving app's asynchronous read and there is no event to wait on. If a
   # slow app ever pastes the old contents, raise this or drop the restore.
   sleep 0.4
-  [[ -n $saved ]] && printf '%s' "$saved" | wl-copy
+  clipboard_restore
+}
+
+# --------------------------------------------------------------- paste
+
+# The clipboard as text, for a field of the panel. The panel asks here instead
+# of letting Qt paste, because Qt reads the whole clipboard and waits for its
+# owner without end. Only text is given: an image is not something to type.
+paste() {
+  local where=() text
+  [[ ${1:-} == "--primary" ]] && where=(--primary)
+  deadline "$CLIPBOARD_SECONDS" wl-paste "${where[@]}" --list-types 2>/dev/null |
+    head -c 4096 | grep -qi '^text/' || return 0
+  text=$(read_text "$CLIPBOARD_SECONDS" wl-paste "${where[@]}" --no-newline)
+  (( $? == TOO_LARGE )) &&
+    die "the clipboard holds more than $((MAX_TEXT_BYTES / 1024)) KiB of text, so it was not pasted"
+  printf '%s' "$text"
 }
 
 # --------------------------------------------------------------- selftest
 
 selftest() {
   local out
+  # Its own result file: a run here must not replace the answer the panel is
+  # showing.
+  local RESULT
+  RESULT=$(mktemp)
+  SCRATCH+=("$RESULT")
   out=$(build_prompt "Make it shorter" "Hello world")
   [[ $out == *"Make it shorter"* ]] || die "selftest: instruction missing from prompt"
   [[ $out == *"<text>"$'\n'"Hello world"* ]] || die "selftest: text missing from prompt"
@@ -577,6 +778,8 @@ selftest() {
   # keybinding's own modifiers, so assert both halves: it keeps pressing until
   # one lands, and it gives up instead of spinning forever.
   (
+    # The stand-ins below are functions, which timeout cannot run.
+    deadline() { shift; "$@"; }
     presses=0
     press() { presses=$((presses + 1)); }
     wl-paste() {
@@ -590,11 +793,98 @@ selftest() {
     [[ $(press_until_copied 2000) == landed ]] || exit 1
   ) || die "selftest: copy loop gave up before a late press landed"
   (
+    deadline() { shift; "$@"; }
     press() { :; }
     wl-paste() { :; }
     press_until_copied 200 && exit 1
     exit 0
   ) || die "selftest: copy loop did not give up on its deadline"
+  # A clipboard that never answers must not hold the loop past its budget, and
+  # one that never stops must not be read past the limit.
+  (
+    press() { :; }
+    wl-paste() { sleep 30; }
+    export -f wl-paste
+    deadline() { local s="$1"; shift; timeout --kill-after=2 "$s" bash -c '"$@"' _ "$@"; }
+    started=$(date +%s)
+    press_until_copied 200 && exit 1
+    (( $(date +%s) - started < 5 )) || exit 1
+  ) || die "selftest: a clipboard that does not answer held the copy loop"
+  (
+    deadline() { shift; "$@"; }
+    press() { :; }
+    wl-paste() {
+      case "$1" in
+        --list-types) printf 'text/plain\n' ;;
+        *) yes ;;
+      esac
+    }
+    press_until_copied 200
+    (( $? == TOO_LARGE ))
+  ) || die "selftest: a selection with no end was not refused"
+
+  # A paste into the panel is text within the limit, or nothing.
+  (
+    deadline() { shift; "$@"; }
+    wl-paste() { case " $* " in *" --list-types "*) printf 'text/plain\n' ;; *) printf 'pasted' ;; esac; }
+    [[ $(paste) == pasted ]] || exit 1
+    wl-paste() { case " $* " in *" --list-types "*) printf 'image/png\n' ;; *) printf 'PNG' ;; esac; }
+    [[ -z $(paste) ]] || exit 1
+    wl-paste() { case " $* " in *" --list-types "*) printf 'text/plain\n' ;; *) yes ;; esac; }
+    ( paste ) >/dev/null 2>&1 && exit 1
+    exit 0
+  ) || die "selftest: a paste into the panel was not held to text within the limit"
+
+  # Every reader stops at its limit and at its time.
+  out=$(read_text 5 printf 'short')
+  [[ $out == short ]] || die "selftest: a bounded read lost the text: $out"
+  read_text 5 yes >/dev/null
+  (( $? == TOO_LARGE )) || die "selftest: a read with no end was not refused"
+  read_text 0.2 sleep 30 >/dev/null
+  (( $? == 124 )) || die "selftest: a read that never answers was not stopped"
+  ( yes | text_argument - ) >/dev/null 2>&1 && die "selftest: text with no end was taken from stdin"
+  (
+    STDIN_SECONDS=0.2
+    # Not a pipeline: that would wait for the writer, which is the fault.
+    ( text_argument - < <(sleep 5) ) >/dev/null 2>&1 && exit 1
+    exit 0
+  ) || die "selftest: stdin that never closes was waited for"
+  fits 4 "abcd" && ! fits 4 "abcde" || die "selftest: the size check is off by one"
+  fits 3 "éé" && die "selftest: the size check counts characters, not bytes"
+
+  # A clipboard is kept whole or not at all, and one that is not kept is not
+  # replaced.
+  (
+    STATE_DIR=$(mktemp -d)
+    deadline() { shift; "$@"; }
+    copied=""
+    wl-copy() { copied=$(cat); }
+    wl-paste() {
+      case "$1" in
+        --list-types) printf 'chromium/x-private\ntext/plain\n' ;;
+        *) printf 'kept' ;;
+      esac
+    }
+    clipboard_save || exit 1
+    # Text stays text, whatever type the owner lists first.
+    [[ -z $CLIP_TYPE && $(<"$CLIP_FILE") == kept ]] || exit 1
+    file=$CLIP_FILE
+    clipboard_restore
+    [[ $copied == kept && ! -e $file && -z $CLIP_FILE ]] || exit 1
+    wl-paste() {
+      case "$1" in
+        --list-types) printf 'image/png\nimage/bmp\n' ;;
+        *) [[ $* == *"--type image/png"* ]] && printf 'PNG' ;;
+      esac
+    }
+    clipboard_save && [[ $CLIP_TYPE == image/png && $(<"$CLIP_FILE") == PNG ]] || exit 1
+    clipboard_restore
+    MAX_CLIPBOARD_BYTES=8
+    wl-paste() { yes; }
+    clipboard_save && exit 1
+    [[ -z $CLIP_FILE && -z $(ls -A "$STATE_DIR") ]] || exit 1
+    rm -rf "$STATE_DIR"
+  ) || die "selftest: the clipboard was not kept and put back within its limit"
 
   # Every agent but claude has to carry the rules inside the message, or it
   # answers like a chat instead of returning the rewrite.
@@ -646,6 +936,26 @@ TRACE
   [[ -z $out ]] || die "selftest: a failing agent still returned text: $out"
   rm -f "$SESSION"
 
+  # An agent is given so long and so much room, and what it leaves behind is
+  # removed either way.
+  (
+    STATE_DIR=$(mktemp -d)
+    SESSION="$STATE_DIR/session.json"
+    RESULT="$STATE_DIR/result.txt"
+    jq -n '{text: "Hello world", source: "selftest", address: ""}' >"$SESSION"
+    AGENT_SECONDS=1
+    out=$(OMAPEN_AGENT_CMD='sleep 30' run rewrite 2>&1)
+    (( $? == 124 )) && [[ $out == *"did not answer"* ]] || exit 1
+    AGENT_SECONDS=20
+    out=$(OMAPEN_AGENT_CMD='cat >/dev/null; yes' run rewrite 2>&1) && exit 1
+    [[ $out == *"larger than"* ]] || exit 1
+    # A failure that talks without end still ends, and still says something.
+    out=$(OMAPEN_AGENT_CMD='cat >/dev/null; echo "ERROR: first line" >&2; yes noise | head -c 2000000 >&2; exit 2' run rewrite 2>&1) && exit 1
+    [[ $out == "ERROR: first line"* ]] && (( ${#out} < 4000 )) || exit 1
+    [[ -z $(find "$STATE_DIR" -name 'run.*') ]] || exit 1
+    rm -rf "$STATE_DIR"
+  ) || die "selftest: an agent was not held to its time and size"
+
   # Switching agent has to drop a model that belonged to the old one, and has
   # to leave a first run alone, which has nothing to compare against.
   (
@@ -669,7 +979,7 @@ TRACE
   [[ $out == "ollama run gemma3:4b --hidethinking --nowordwrap " ]] ||
     die "selftest: ollama command wrong: $(printf '%q' "$out")"
   # die ends the subshell, so a non-zero status here is the refusal itself.
-  ( ollama() { :; }; agent_command ollama '' ) 2>/dev/null &&
+  ( deadline() { shift; "$@"; }; ollama() { :; }; agent_command ollama '' ) 2>/dev/null &&
     die "selftest: ollama ran without a model"
 
   out=$(focus_lua 0xdead)
@@ -754,23 +1064,24 @@ case "${1:-}" in
     # Pressing the keybinding again to dismiss the panel must not capture: the
     # panel holds the keyboard, so Ctrl+A Ctrl+C would run inside our own
     # prompt field instead of the window the text came from.
-    hyprctl layers 2>/dev/null | grep -q omarchy-keyboard-panel || capture
-    omarchy-shell shell toggle omapen '{}' >/dev/null
+    deadline 2 hyprctl layers 2>/dev/null | grep -q omarchy-keyboard-panel || capture
+    deadline 5 omarchy-shell shell toggle omapen '{}' >/dev/null
     ;;
   compose)
     # Same dismissal guard as open: a second press while the panel is up must
     # close it, not wipe the paragraph you were halfway through typing.
-    hyprctl layers 2>/dev/null | grep -q omarchy-keyboard-panel || compose
-    omarchy-shell shell toggle omapen '{}' >/dev/null
+    deadline 2 hyprctl layers 2>/dev/null | grep -q omarchy-keyboard-panel || compose
+    deadline 5 omarchy-shell shell toggle omapen '{}' >/dev/null
     ;;
   settext) shift; settext "${1:-}" ;;
   edittext) shift; edittext "${1:-}" ;;
   run) shift; run "$@" ;;
   models) shift; list_models "${1:-}" ;;
   insert) shift; insert "$@" ;;
+  paste) shift; paste "${1:-}" ;;
   selftest) selftest ;;
   *)
-    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text|-> | edittext <text|-> | run <preset|-> [prompt|-] | models [agent] | insert [-] | selftest" >&2
+    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text|-> | edittext <text|-> | run <preset|-> [prompt|-] | models [agent] | insert [-] | paste [--primary] | selftest" >&2
     exit 1
     ;;
 esac
