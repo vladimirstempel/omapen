@@ -6,11 +6,37 @@
 set -uo pipefail
 
 PLUGIN_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/omapen"
+# The state is the text off your screen, so it stays out of /tmp, where another
+# user can make the directory first and point its files somewhere else. With no
+# runtime directory it goes under your home, which nobody else can write to.
+if [[ -n ${XDG_RUNTIME_DIR:-} ]]; then
+  STATE_DIR="$XDG_RUNTIME_DIR/omapen"
+else
+  STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omapen"
+fi
+# Every file this script makes is for its owner alone.
+umask 077
 SESSION="$STATE_DIR/session.json"
 RESULT="$STATE_DIR/result.txt"
 SHELL_JSON="$HOME/.config/omarchy/shell.json"
 USER_PROMPTS="${XDG_CONFIG_HOME:-$HOME/.config}/omapen/prompts.json"
+
+# A directory that is really ours: a real directory, not a link to one, owned by
+# this user, and closed to everyone else. Anything else is refused before a
+# word of text is written into it.
+ensure_state_dir() {
+  mkdir -p "$STATE_DIR" 2>/dev/null
+  [[ -d $STATE_DIR && ! -L $STATE_DIR && -O $STATE_DIR ]] ||
+    die "$STATE_DIR is not a directory you own, so OmaPen will not keep text in it"
+  chmod 700 "$STATE_DIR" || die "could not close $STATE_DIR to other users"
+}
+
+# The text for settext, edittext and a free prompt. A lone "-" means it is on
+# stdin, which is how the panel sends it: an argument is on show to every user
+# on the machine for as long as the process runs.
+text_argument() {
+  if [[ ${1:-} == "-" ]]; then cat; else printf '%s' "${1:-}"; fi
+}
 
 die() { echo "omapen: $*" >&2; exit 1; }
 
@@ -130,7 +156,7 @@ press_until_copied() {
 # whatever was copied at some point today. Neither is a guess worth making, and
 # text already on the clipboard is a paste the user can make themselves.
 capture() {
-  mkdir -p "$STATE_DIR"
+  ensure_state_dir
   local active address class text source saved saved_type
   if [[ ${1:-} == "--if-stale" && -f $SESSION ]]; then
     local age=$(( $(date +%s) - $(stat -c %Y "$SESSION") ))
@@ -184,8 +210,9 @@ capture() {
     return 0
   fi
 
-  jq -n --arg text "$text" --arg source "$source" --arg address "$address" \
-    '{text: $text, source: $source, address: $address}' >"$SESSION"
+  # The text goes to jq on stdin. --arg would put it on jq's command line.
+  printf '%s' "$text" | jq -Rs --arg source "$source" --arg address "$address" \
+    '{text: ., source: $source, address: $address}' >"$SESSION"
 }
 
 # Text that is not selected anywhere: something you are about to write, a
@@ -194,15 +221,15 @@ capture() {
 # focused window is a terminal, where capture deliberately refuses to press
 # anything.
 compose() {
-  mkdir -p "$STATE_DIR"
+  ensure_state_dir
   settext ""
 }
 
 # The panel hands typed text back through here before it runs anything: the
 # agent reads the session file, never the popup.
 settext() {
-  mkdir -p "$STATE_DIR"
-  jq -n --arg text "$1" '{text: $text, source: "manual", address: ""}' >"$SESSION"
+  ensure_state_dir
+  text_argument "${1:-}" | jq -Rs '{text: ., source: "manual", address: ""}' >"$SESSION"
 }
 
 # The panel shows captured text in a field you can edit, so a run has to be
@@ -210,11 +237,12 @@ settext() {
 # came from. settext would stamp it manual and blank the window address, which
 # is the one thing Replace needs.
 edittext() {
-  mkdir -p "$STATE_DIR"
-  [[ -s $SESSION ]] || { settext "$1"; return; }
+  ensure_state_dir
+  [[ -s $SESSION ]] || { settext "${1:-}"; return; }
   local tmp
   tmp=$(mktemp)
-  jq --arg text "$1" '.text = $text' "$SESSION" >"$tmp" && mv "$tmp" "$SESSION"
+  text_argument "${1:-}" | jq -Rs --slurpfile session "$SESSION" '. as $text | $session[0] | .text = $text' >"$tmp" &&
+    mv "$tmp" "$SESSION"
 }
 
 # A model id belongs to the provider it came from: "haiku" means nothing to
@@ -224,7 +252,7 @@ edittext() {
 # since there is nothing yet to say the model was chosen for a different one.
 forget_model_on_agent_change() {
   local agent="$1" last="$STATE_DIR/agent" previous=""
-  mkdir -p "$STATE_DIR"
+  ensure_state_dir
   [[ -f $last ]] && previous=$(<"$last")
   printf '%s' "$agent" >"$last"
   [[ -n $previous && $previous != "$agent" ]] || return 0
@@ -306,8 +334,7 @@ agent_command() {
       ;;
     pi)
       # --no-tools: "Disable all tools by default (built-in and extension)".
-      # -p is a boolean here and the prompt is positional, so run() appending it
-      # last is fine.
+      # -p is a boolean here, and with no positional prompt pi reads stdin.
       printf '%s\n' pi --no-tools
       [[ -n $model ]] && printf '%s\n' --model "$model"
       printf '%s\n' -p
@@ -411,7 +438,7 @@ run() {
   [[ -n $text ]] || die "nothing captured, run: omapen capture"
 
   if [[ $preset == "-" ]]; then
-    instruction="$free"
+    instruction=$(text_argument "$free")
   else
     instruction=$(jq -r --arg id "$preset" '.[] | select(.id == $id) | .instruction' "$(prompts_file)")
   fi
@@ -447,10 +474,11 @@ run() {
     # refusal arrives here.
     (( ${#cmd[@]} > 0 )) || return 1
     [[ $agent == claude ]] && cmd+=(--system-prompt "$SYSTEM_PROMPT")
-    cmd+=("$prompt")
 
-    # </dev/null or the agent waits three seconds for a stdin that never comes.
-    out=$( cd "$workdir" && timeout 180 "${cmd[@]}" </dev/null 2>"$workdir/stderr" )
+    # The prompt holds the text off your screen, so it goes in on stdin. Every
+    # agent here reads its prompt from there when it is given none as an
+    # argument, and an argument is on show to every user on the machine.
+    out=$( cd "$workdir" && printf '%s' "$prompt" | timeout 180 "${cmd[@]}" 2>"$workdir/stderr" )
     rc=$?
   fi
   out=$(extract_answer "$(printf '%s' "$out" | clean_output)")
@@ -508,7 +536,7 @@ selftest() {
   [[ $out == *"<text>"$'\n'"Hello world"* ]] || die "selftest: text missing from prompt"
 
   # An agent reaches a command line only with its own tools switched off, and
-  # the flag that swallows the prompt stays last, since run() appends it there.
+  # the prompt is not on the command line at all: run() sends it on stdin.
   out=$(agent_command claude "" | tr '\n' ' ')
   [[ $out == "claude -p --restricted --tools  --strict-mcp-config --mcp-config {\"mcpServers\":{}} --model haiku " ]] || die "selftest: claude command wrong: $out"
   out=$(agent_command pi "" | tr '\n' ' ')
@@ -687,6 +715,29 @@ Twice.'
   [[ $out == *"Hello world"* ]] || die "selftest: run did not reach the agent"
   [[ $out != *"writing assistant"* ]] || die "selftest: the rules leaked into the result"
 
+  # A lone "-" takes the text from stdin, which is how the panel sends it.
+  SESSION=$(mktemp)
+  printf 'from "stdin"\ntwo lines' | settext -
+  [[ $(jq -r '.text' "$SESSION") == $'from "stdin"\ntwo lines' ]] || die "selftest: settext did not read stdin"
+  printf 'edited' | edittext -
+  [[ $(jq -r '.text' "$SESSION") == edited ]] || die "selftest: edittext did not read stdin"
+  out=$(printf 'Make it LOUD' | OMAPEN_AGENT_CMD='grep -o "Make it LOUD" | head -1' run - -)
+  rm -f "$SESSION"
+  [[ $out == "Make it LOUD" ]] || die "selftest: a prompt on stdin did not reach the agent: $out"
+
+  # The state directory is refused unless it is a real directory of ours, and
+  # it is closed to other users before anything is written.
+  (
+    base=$(mktemp -d)
+    STATE_DIR="$base/state"
+    ensure_state_dir
+    [[ $(stat -c %a "$STATE_DIR") == 700 ]] || exit 1
+    ln -s "$base/state" "$base/link"
+    STATE_DIR="$base/link"
+    ( ensure_state_dir ) 2>/dev/null && exit 1
+    rm -rf "$base"
+  ) || die "selftest: the state directory check let a bad directory through"
+
   echo "omapen selftest: ok"
 }
 
@@ -714,7 +765,7 @@ case "${1:-}" in
   insert) shift; insert "$@" ;;
   selftest) selftest ;;
   *)
-    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text> | edittext <text> | run <preset|-> [prompt] | models [agent] | insert [-] | selftest" >&2
+    echo "Usage: omapen capture [--if-stale] | open | compose | settext <text|-> | edittext <text|-> | run <preset|-> [prompt|-] | models [agent] | insert [-] | selftest" >&2
     exit 1
     ;;
 esac

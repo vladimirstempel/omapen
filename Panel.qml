@@ -74,12 +74,15 @@ Panel {
     result = ""
     errorText = ""
     pending = free ? "-" : presetId
-    runProc.command = free ? [root.cli, "run", "-", free] : [root.cli, "run", presetId]
+    // Your text and your prompt go to the helper on stdin, never as arguments:
+    // a command line is on show to every user on the machine.
+    runProc.command = free ? [root.cli, "run", "-", "-"] : [root.cli, "run", presetId]
+    runProc.input = free || ""
     // The agent reads the session file, never the popup, so the field has to
     // land there first. edittext rather than settext: the text may have been
     // captured, and the window it came from is what Replace pastes to.
-    setTextProc.command = [root.cli, "edittext", root.workingText]
-    setTextProc.running = true
+    setTextProc.command = [root.cli, "edittext", "-"]
+    setTextProc.send(root.workingText)
   }
 
   function submit(apply) {
@@ -257,15 +260,32 @@ Panel {
     }
   }
 
-  Process {
+  // A process that is handed text on stdin and then sees the end of it.
+  component StdinProcess: Process {
+    property string input: ""
+    stdinEnabled: true
+    onStarted: {
+      write(input)
+      input = ""
+      // Closes stdin, which is the end of input the reader waits for.
+      stdinEnabled = false
+    }
+    function send(text) {
+      input = text
+      stdinEnabled = true
+      running = true
+    }
+  }
+
+  StdinProcess {
     id: setTextProc
     onExited: function (exitCode) {
-      if (exitCode === 0) runProc.running = true
+      if (exitCode === 0) runProc.send(runProc.input)
       else root.errorText = "Could not hand the text over (exit " + exitCode + ")"
     }
   }
 
-  Process {
+  StdinProcess {
     id: runProc
     stdout: StdioCollector {
       waitForEnd: true
@@ -292,8 +312,9 @@ Panel {
     command: [root.cli, "insert"]
   }
 
-  Process {
+  StdinProcess {
     id: copyProc
+    command: ["wl-copy"]
   }
 
   BarIconButton {
@@ -514,8 +535,7 @@ Panel {
               text: "Copy"
               iconText: "󰆏"
               onClicked: {
-                copyProc.command = ["wl-copy", "--", root.result]
-                copyProc.running = true
+                copyProc.send(root.result)
                 root.close()
               }
             }

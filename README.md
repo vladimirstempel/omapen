@@ -105,7 +105,9 @@ rm -rf ~/.config/omapen
 ```
 
 Nothing else is left behind: the session file and the last result live in
-`$XDG_RUNTIME_DIR/omapen`, which the system clears on logout.
+`$XDG_RUNTIME_DIR/omapen`, which the system clears on logout. The directory is
+open to you alone, and OmaPen refuses one that it does not own. A session with
+no runtime directory keeps them in `~/.local/state/omapen`, never in `/tmp`.
 
 ## Where the text comes from
 
@@ -321,10 +323,16 @@ bin/omapen compose              # empty session, nothing captured
 bin/omapen edittext "..."       # change the text, keep where it came from
 bin/omapen run shorten          # ask the agent, print the result
 bin/omapen run - "make it rhyme"
+echo "..." | bin/omapen edittext -      # the same, with the text on stdin
+echo "make it rhyme" | bin/omapen run - -
 bin/omapen insert               # paste the last result back where it came from
 bin/omapen insert -             # or paste whatever is piped in
 bin/omapen selftest             # the whole chain against a fake agent, no tokens spent
 ```
+
+The panel sends your text and your prompt on stdin, and the agent gets its
+prompt the same way. A command line is on show to every user on the machine
+while the process runs, so the text never goes on one.
 
 The agent runs headless, with every tool switched off, in an empty temporary
 directory: the tools are what keep your selection from turning into actions
